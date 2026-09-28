@@ -5,7 +5,7 @@ export interface Server {
   name: string
   host: string
   dirs: string[]
-  group: string
+  tags: string[]
   auth: Auth
   port?: number
 }
@@ -94,7 +94,7 @@ export interface Listing {
 
 export interface ServerDraft {
   name: string
-  group: string
+  tags: string[]
   host: string
   port: string
   dirs: string[]
@@ -102,9 +102,9 @@ export interface ServerDraft {
   password: string
 }
 
-export const emptyDraft = (group = ''): ServerDraft => ({
+export const emptyDraft = (): ServerDraft => ({
   name: '',
-  group,
+  tags: [],
   host: '',
   port: '',
   dirs: [''],

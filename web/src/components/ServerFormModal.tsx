@@ -10,7 +10,7 @@ interface Props {
   msg: Status | null
   keychain: boolean
   hosts: string[]
-  groups: string[]
+  tags: string[]
   onChange: (patch: Partial<ServerDraft>) => void
   onClose: () => void
   onCheck: () => void
@@ -43,7 +43,7 @@ export function ServerFormModal(p: Props) {
             msg={p.msg}
             keychain={p.keychain}
             hosts={p.hosts}
-            groups={p.groups}
+            tags={p.tags}
             onChange={p.onChange}
             onClose={p.onClose}
             onCheck={p.onCheck}

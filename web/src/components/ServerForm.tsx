@@ -1,6 +1,6 @@
 import { useId, useState, type ReactNode } from 'react'
 import { Close, Plus } from './Icons'
-import { Btn, Field, IconBtn } from './ui'
+import { Btn, Chip, Field, IconBtn } from './ui'
 import { Combobox } from '@/components/ui/combobox'
 import { DialogTitle } from '@/components/ui/dialog'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -13,7 +13,7 @@ interface Props {
   msg: Status | null
   keychain: boolean
   hosts: string[]
-  groups: string[]
+  tags: string[]
   onChange: (patch: Partial<ServerDraft>) => void
   onClose: () => void
   onCheck: () => void
@@ -36,13 +36,20 @@ function Label({ children, hint }: { children: ReactNode; hint?: string }) {
   )
 }
 
-export function ServerForm({ mode, draft, msg, keychain, hosts, groups, onChange, onClose, onCheck, onSubmit }: Props) {
+export function ServerForm({ mode, draft, msg, keychain, hosts, tags, onChange, onClose, onCheck, onSubmit }: Props) {
   const isNew = mode === 'new'
   const isPw = draft.auth === 'password'
   const hostId = useId()
 
-  const group = draft.group.trim()
-  const [creating, setCreating] = useState(group !== '' && !groups.includes(group))
+  const [tagInput, setTagInput] = useState('')
+  const allTags = [...new Set([...tags, ...draft.tags])]
+  const toggleTag = (t: string) =>
+    onChange({ tags: draft.tags.includes(t) ? draft.tags.filter(x => x !== t) : [...draft.tags, t] })
+  const commitTag = () => {
+    const t = tagInput.trim().replace(/[,，]/g, '')
+    setTagInput('')
+    if (t && !draft.tags.includes(t)) onChange({ tags: [...draft.tags, t] })
+  }
 
   const setDir = (i: number, v: string) => onChange({ dirs: draft.dirs.map((d, j) => (j === i ? v : d)) })
   const addDir = () => onChange({ dirs: [...draft.dirs, ''] })
@@ -123,50 +130,29 @@ export function ServerForm({ mode, draft, msg, keychain, hosts, groups, onChange
         </div>
 
         <div>
-          <Label>分组</Label>
+          <Label hint="可多选，推送时可按标签一键勾选">标签</Label>
           <div className="flex flex-wrap items-center gap-1.5">
-            {groups.length > 0 && (
-              <ToggleGroup
-                type="single"
-                aria-label="分组"
-                value={groups.includes(group) ? group : ''}
-                onValueChange={v => {
-                  setCreating(false)
-                  onChange({ group: v })
-                }}
-              >
-                {groups.map(g => (
-                  <ToggleGroupItem key={g} value={g}>
-                    {g}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            )}
-            {creating ? (
-              <input
-                autoFocus
-                aria-label="新分组名"
-                value={draft.group}
-                onChange={e => onChange({ group: e.target.value })}
-                onBlur={() => {
-                  if (!draft.group.trim()) setCreating(false)
-                }}
-                placeholder="新分组名"
-                className="h-7 w-32 px-2.5 rounded-md border field-edge sunken text-[12px] text-fg outline-0 focus:border-[rgba(124,124,245,.7)]"
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setCreating(true)
-                  onChange({ group: '' })
-                }}
-                className="flex items-center gap-1 h-7 px-2.5 border border-dashed border-[rgba(255,255,255,.16)] rounded-md bg-transparent text-[12px] text-mute-2 cursor-pointer transition-colors duration-150 hover:border-[rgba(124,124,245,.6)] hover:text-violet-text"
-              >
-                <Plus size={11} />
-                新分组
-              </button>
-            )}
+            {allTags.map(t => (
+              <Chip key={t} active={draft.tags.includes(t)} onClick={() => toggleTag(t)}>
+                {draft.tags.includes(t) ? '✓ ' : ''}
+                {t}
+              </Chip>
+            ))}
+            <input
+              aria-label="新标签"
+              value={tagInput}
+              maxLength={20}
+              onChange={e => setTagInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ',' || e.key === '，') {
+                  e.preventDefault()
+                  commitTag()
+                }
+              }}
+              onBlur={commitTag}
+              placeholder="+ 新标签，回车添加"
+              className="h-6 w-36 px-2 rounded-md border border-dashed border-[rgba(255,255,255,.16)] bg-transparent text-[12px] text-fg outline-0 placeholder:text-mute-4 focus:border-[rgba(124,124,245,.7)]"
+            />
           </div>
         </div>
 

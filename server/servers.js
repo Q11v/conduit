@@ -19,8 +19,9 @@ export async function loadServers() {
             ? [s.dir.trim()]
             : []
         if (dirs.length === 0) return null
-        const { dir, ...rest } = s
-        return { ...rest, dirs: [...new Set(dirs)] }
+        const { dir, group, ...rest } = s
+        const tags = cleanTags(Array.isArray(s.tags) ? s.tags : group ? [group] : [])
+        return { ...rest, dirs: [...new Set(dirs)], tags }
       })
       .filter(Boolean)
   } catch {
@@ -35,10 +36,15 @@ async function persist(list) {
   await rename(tmp, CONFIG_PATH)
 }
 
+function cleanTags(raw) {
+  if (!Array.isArray(raw)) return []
+  return [...new Set(raw.map(t => String(t ?? '').trim()).filter(Boolean))]
+}
+
 function clean(input) {
   const name = String(input.name ?? '').trim()
   const host = String(input.host ?? '').trim()
-  const group = String(input.group ?? '').trim()
+  const tags = cleanTags(input.tags)
   const auth = input.auth === 'password' ? 'password' : 'key'
 
   const raw = Array.isArray(input.dirs) ? input.dirs : input.dir ? [input.dir] : []
@@ -59,10 +65,15 @@ function clean(input) {
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('端口应是 1–65535 的整数')
   }
 
+  for (const t of tags) {
+    if (t.length > 20) throw new Error(`标签太长（最多 20 个字）：${t}`)
+    if (/[,，]/.test(t)) throw new Error(`标签里不要带逗号：${t}`)
+  }
+
   if (auth === 'password' && !keychainAvailable) {
     throw new Error('密码认证依赖 macOS 钥匙串，当前系统不支持')
   }
-  return { name: name || host, host, dirs, group, auth, ...(port ? { port } : {}) }
+  return { name: name || host, host, dirs, tags, auth, ...(port ? { port } : {}) }
 }
 
 export async function withSecret(server) {
@@ -104,20 +115,6 @@ export async function updateServer(id, input) {
   list[i] = next
   await persist(list)
   return next
-}
-
-export async function renameGroup(from, to) {
-  from = String(from ?? '').trim()
-  to = String(to ?? '').trim()
-  if (!from) throw new Error('「未分组」不是真正的分组，不能改名或解散')
-  const list = await loadServers()
-  const members = list.filter(s => (s.group || '') === from)
-  if (members.length === 0) throw new Error(`分组「${from}」不存在，可能已被改过，刷新一下`)
-  if (from !== to) {
-    for (const s of members) s.group = to
-    await persist(list)
-  }
-  return { count: members.length }
 }
 
 export async function removeServer(id) {

@@ -8,15 +8,9 @@ import { formatSize, why } from '../api'
 import type { Listing, Probe, Server } from '../types'
 import type { Status } from '../useConduit'
 
-interface Group {
-  name: string
-  label: string
-  servers: Server[]
-}
-
 interface Props {
   loaded: boolean
-  groups: Group[]
+  servers: Server[]
   server: Server | null
   probeOf: (serverId: string) => Probe
   onServer: (id: string) => void
@@ -163,14 +157,11 @@ export function PullView(p: Props) {
               title={`${p.server.host}${p.server.port ? `:${p.server.port}` : ''}`}
               className="flex-1 min-w-0 h-9 pl-[11px] pr-24 rounded-[9px] border field-edge sunken text-fg font-mono text-[13px] outline-0 focus:border-[rgba(124,124,245,.7)]"
             >
-              {p.groups.map(g => (
-                <optgroup key={g.name} label={g.label}>
-                  {g.servers.map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </optgroup>
+              {p.servers.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                  {s.tags?.length ? `  · ${s.tags.join(' · ')}` : ''}
+                </option>
               ))}
             </select>
             <ProbeBadge probe={p.probeOf(p.server.id)} className="pointer-events-none absolute right-8" />

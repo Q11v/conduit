@@ -21,10 +21,11 @@ interface Props {
   onToggle: (key: string) => void
   onRemoveAdhoc: (spec: string) => void
 
-  groups: { name: string; label: string; servers: Server[] }[]
+  servers: Server[]
+  tags: string[]
   sel: Set<string>
   onToggleDir: (serverId: string, dir: string) => void
-  onToggleGroup: (name: string) => void
+  onToggleTag: (tag: string) => void
   adhoc: string
   onAdhoc: (v: string) => void
   onGoServers: () => void
@@ -200,13 +201,14 @@ export function PushCard(p: Props) {
 
             <div className={targetCount === 0 ? '' : 'mt-0.5'}>
               <TargetPicker
-                groups={p.groups}
+                servers={p.servers}
+                tags={p.tags}
                 sel={p.sel}
                 totalTargets={p.totalTargets}
                 probeOf={p.probeOf}
                 adhoc={p.adhoc}
                 onToggle={p.onToggleDir}
-                onToggleGroup={p.onToggleGroup}
+                onToggleTag={p.onToggleTag}
                 onAdhoc={p.onAdhoc}
                 onGoServers={p.onGoServers}
                 empty={targetCount === 0}

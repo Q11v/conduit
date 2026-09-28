@@ -49,7 +49,7 @@ export const getServers = () => request<{ servers: Server[] }>('/api/servers', u
 
 const payload = (d: ServerDraft) => ({
   name: d.name,
-  group: d.group,
+  tags: d.tags.map(t => t.trim()).filter(Boolean),
   host: d.host.trim(),
   port: d.port.trim(),
   dirs: d.dirs.map(x => x.trim()).filter(Boolean),
@@ -60,8 +60,6 @@ const payload = (d: ServerDraft) => ({
 export const createServer = (d: ServerDraft) => request<Server>('/api/servers', payload(d))
 
 export const saveServer = (id: string, d: ServerDraft) => request<Server>(`/api/servers/${id}`, payload(d), 'PUT')
-
-export const renameGroup = (from: string, to: string) => request<{ count: number }>('/api/groups/rename', { from, to })
 
 export const deleteServer = (id: string) => request<{ ok: true }>(`/api/servers/${id}`, undefined, 'DELETE')
 

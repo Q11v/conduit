@@ -82,10 +82,11 @@ export default function App() {
               probeOf={c.probeOf}
               onToggle={c.toggleByKey}
               onRemoveAdhoc={removeAdhoc}
-              groups={c.groups}
+              servers={c.servers}
+              tags={c.tags}
               sel={c.sel}
               onToggleDir={c.toggle}
-              onToggleGroup={c.toggleGroup}
+              onToggleTag={c.toggleTag}
               adhoc={c.adhoc}
               onAdhoc={c.setAdhoc}
               onGoServers={() => c.setView('servers')}
@@ -112,7 +113,7 @@ export default function App() {
         {c.view === 'pull' && (
           <PullView
             loaded={c.loaded}
-            groups={c.groups}
+            servers={c.servers}
             server={c.pullServer}
             probeOf={c.probeOf}
             onServer={c.choosePullServer}
@@ -145,7 +146,8 @@ export default function App() {
         {c.view === 'servers' && (
           <ServersView
             loaded={c.loaded}
-            groups={c.groups}
+            servers={c.servers}
+            tags={c.tags}
             totalTargets={c.totalTargets}
             checks={c.checks}
             probeOf={c.probeOf}
@@ -155,8 +157,6 @@ export default function App() {
             onCheckAll={c.checkAll}
             onEdit={c.openEdit}
             onRemove={c.remove}
-            onRenameGroup={c.renameGroup}
-            onUngroup={c.ungroup}
             onNew={c.openNew}
           />
         )}
@@ -196,7 +196,7 @@ export default function App() {
         msg={c.formMsg}
         keychain={c.hosts?.keychain ?? true}
         hosts={c.hosts?.hosts ?? []}
-        groups={c.groups.map(g => g.name).filter(Boolean)}
+        tags={c.tags}
         onChange={c.patchDraft}
         onClose={c.closeForm}
         onCheck={c.checkForm}

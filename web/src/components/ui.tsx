@@ -132,10 +132,11 @@ export function CountBadge({ n, total }: { n: number; total?: number }) {
   )
 }
 
-export function ProbeBadge({ probe, className = '' }: { probe: Probe; className?: string }) {
+export function ProbeBadge({ probe, title, className = '' }: { probe: Probe; title?: string; className?: string }) {
   const pr = PROBE[probe]
   return (
     <span
+      title={title}
       className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[12px] ${className}`}
       style={{ color: pr.fg }}
     >
@@ -157,8 +158,10 @@ export function Chip({
   onRemove,
   removeTitle = '移除',
   title,
+  dot,
   children
 }: {
+  dot?: string
   active?: boolean
   size?: 'sm' | 'md'
   onClick?: () => void
@@ -168,6 +171,17 @@ export function Chip({
   children: ReactNode
 }) {
   const box = size === 'md' ? 'h-9 px-2.5 rounded-[9px]' : 'h-6 px-2 rounded-md'
+  if (!onClick && !onRemove) {
+    return (
+      <span
+        title={title}
+        className={`flex min-w-0 max-w-full shrink-0 items-center gap-1.5 border font-mono text-[12px] hair-2 bg-[rgba(255,255,255,.03)] text-fg-dim ${box}`}
+      >
+        {dot && <span className="shrink-0 w-1.5 h-1.5 rounded-full transition-colors" style={{ background: dot }} />}
+        <span className="min-w-0 truncate">{children}</span>
+      </span>
+    )
+  }
   if (onRemove) {
     return (
       <span

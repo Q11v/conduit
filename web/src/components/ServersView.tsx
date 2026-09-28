@@ -1,19 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
-import { Pencil, Plus, Trash, Zap } from './Icons'
-import { Btn, IconBtn } from './ui'
+import { useEffect, useState, type ReactNode } from 'react'
+import { More, Pencil, Plus, Trash, Zap } from './Icons'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Btn, Chip, CountBadge, IconBtn, ProbeBadge } from './ui'
 import { Hero } from './Hero'
-import { PROBE } from '../probe'
 import type { Check, DirVerdict, Probe, Server } from '../types'
-
-interface Group {
-  name: string
-  label: string
-  servers: Server[]
-}
 
 interface Props {
   loaded: boolean
-  groups: Group[]
+  servers: Server[]
+  tags: string[]
   totalTargets: number
   checks: Record<string, Check>
   probeOf: (serverId: string) => Probe
@@ -23,8 +18,6 @@ interface Props {
   onCheckAll: () => void
   onEdit: (id: string) => void
   onRemove: (id: string) => void
-  onRenameGroup: (from: string, to: string) => Promise<string | null>
-  onUngroup: (name: string) => void
   onNew: () => void
 }
 
@@ -45,16 +38,29 @@ function dirDot(dv?: DirVerdict) {
   return dv.state === 'writable' ? 'var(--color-ok)' : 'var(--color-mute-2)'
 }
 
-const isAscii = (s: string) => /^[\x20-\x7e]*$/.test(s)
+const DIR_STATE: Record<string, string> = {
+  writable: '可写',
+  readonly: '只读',
+  missing: '不存在',
+  unknown: '未知'
+}
 
-function ServerRow({
+function ago(at: number, now: number) {
+  const m = Math.floor((now - at) / 60_000)
+  if (m < 1) return '刚刚检测'
+  if (m < 60) return `${m} 分钟前检测`
+  return `${hhmm(at)} 检测`
+}
+
+function ServerCard({
   s,
   check,
   probe,
   now,
   onCheck,
   onEdit,
-  onRemove
+  onRemove,
+  onTag
 }: {
   s: Server
   check?: Check
@@ -63,199 +69,137 @@ function ServerRow({
   onCheck: () => void
   onEdit: () => void
   onRemove: () => void
+  onTag: (tag: string) => void
 }) {
-  const p = PROBE[probe]
+  const [menu, setMenu] = useState(false)
   const verdict = check && check !== 'testing' ? check : null
   const connLevel =
     !!verdict && !verdict.ok && (verdict.dirs.length === 0 || verdict.dirs.every(d => d.reason === verdict.reason))
   const stale = !!verdict && now - verdict.at > STALE_MS
   const sub = subline(s)
-  const notes = verdict && !connLevel ? verdict.dirs.filter(d => s.dirs.includes(d.dir) && d.state !== 'writable') : []
 
   return (
-    <div className="mb-1.5 border border-[rgba(255,255,255,.08)] rounded-xl bg-[rgba(255,255,255,.03)]">
-      <div className="flex items-center gap-2 px-3.5 pt-3 pb-2.5">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="min-w-0 text-[13px] font-medium truncate" title={`${s.host}:${s.port ?? 22}`}>
-              {s.name}
-            </span>
-            {s.auth === 'password' && (
-              <span className="shrink-0 px-1.5 rounded border hair-3 text-[12px] leading-4 text-mute-2">密码</span>
-            )}
-            <span
-              className={`flex shrink-0 items-center gap-[5px] whitespace-nowrap text-[12px] transition-opacity ${
-                stale ? 'opacity-50' : ''
-              }`}
-              style={{ color: p.fg }}
-              title={
-                verdict
-                  ? `${verdict.reason}\n${hhmm(verdict.at)} 检测${stale ? '，已超过 10 分钟，建议重新检测' : ''}`
-                  : undefined
-              }
-            >
-              <span className={`w-[5px] h-[5px] rounded-full ${p.anim}`} style={{ background: p.dot }} />
-              {p.label}
-            </span>
-          </div>
-          {sub && <div className="mt-0.5 font-mono text-[12px] text-mute-3 truncate">{sub}</div>}
-          {connLevel && <div className="mt-1 text-[12px] leading-snug break-words text-err-text">{verdict.reason}</div>}
-        </div>
-
-        <IconBtn
-          onClick={onCheck}
-          disabled={check === 'testing'}
-          className="h-[26px] px-2 text-[12px] disabled:opacity-45 disabled:cursor-not-allowed"
-        >
-          检测
-        </IconBtn>
-        <IconBtn onClick={onEdit} className="w-[26px] h-[26px]" title="编辑">
-          <Pencil />
-        </IconBtn>
-        <IconBtn onClick={onRemove} danger className="w-[26px] h-[26px]" title="删除">
-          <Trash />
-        </IconBtn>
-      </div>
-
-      <div className="px-3.5 pb-3">
-        <div className="flex flex-wrap gap-1.5">
-          {s.dirs.map(dir => {
-            const dv = connLevel ? undefined : verdict?.dirs.find(x => x.dir === dir)
-            return (
-              <span
-                key={dir}
-                title={dv?.reason}
-                className="flex min-w-0 max-w-full items-center gap-1.5 px-2 py-[3px] rounded-md border hair-2 bg-[rgba(255,255,255,.03)] font-mono text-[12px] text-fg-dim"
+    <div className="flex flex-col min-w-0 border hair-2 rounded-2xl panel transition-colors duration-150 hover:border-[rgba(255,255,255,.16)]">
+      <div className="px-4 pt-3.5">
+        <div className="flex items-center gap-2 min-h-7">
+          <span className="min-w-0 text-[14px] font-semibold truncate" title={`${s.host}:${s.port ?? 22}`}>
+            {s.name}
+          </span>
+          {s.auth === 'password' && (
+            <span className="shrink-0 px-1.5 rounded border hair-3 text-[12px] leading-4 text-mute-2">密码</span>
+          )}
+          <ProbeBadge
+            probe={probe}
+            className={`transition-opacity ${stale ? 'opacity-50' : ''}`}
+            title={verdict ? `${verdict.reason}${stale ? '\n已超过 10 分钟，建议重新检测' : ''}` : undefined}
+          />
+          <span className="flex-1" />
+          <Popover open={menu} onOpenChange={setMenu}>
+            <PopoverTrigger asChild>
+              <IconBtn className="w-7 h-7" title="更多" aria-label={`${s.name} 的更多操作`}>
+                <More />
+              </IconBtn>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-36 p-1">
+              <MenuItem
+                onClick={() => {
+                  setMenu(false)
+                  onEdit()
+                }}
               >
-                <span
-                  className="shrink-0 w-[5px] h-[5px] rounded-full transition-colors"
-                  style={{ background: dirDot(dv) }}
-                />
-                <span className="min-w-0 break-all">{dir}</span>
-              </span>
-            )
-          })}
-        </div>
-        {notes.length > 0 && (
-          <div className="mt-2 flex flex-col gap-0.5">
-            {notes.map(d => (
-              <div
-                key={d.dir}
-                className="text-[12px] leading-snug break-words"
-                style={{ color: d.ok ? 'var(--color-mute-2)' : 'var(--color-err-text)' }}
+                <Pencil />
+                编辑
+              </MenuItem>
+              <MenuItem
+                danger
+                onClick={() => {
+                  setMenu(false)
+                  onRemove()
+                }}
               >
-                <span className="font-mono">{d.dir}</span> {d.reason}
-              </div>
+                <Trash />
+                删除
+              </MenuItem>
+            </PopoverContent>
+          </Popover>
+        </div>
+        {(sub || s.tags?.length > 0) && (
+          <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+            {sub && <span className="font-mono text-[12px] text-mute-4">{sub}</span>}
+            {s.tags?.map(t => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => onTag(t)}
+                title={`只看「${t}」`}
+                className="px-1.5 border-0 rounded bg-[rgba(124,124,245,.12)] text-[12px] leading-[18px] text-violet-text cursor-pointer hover:bg-[rgba(124,124,245,.22)]"
+              >
+                #{t}
+              </button>
             ))}
           </div>
         )}
+      </div>
+
+      <div className="flex-1 px-4 py-3">
+        {connLevel && (
+          <div className="mb-2 px-2.5 py-2 rounded-lg bg-[rgba(226,86,86,.1)] text-[12px] leading-snug break-words text-err-text">
+            {verdict.reason}
+          </div>
+        )}
+        <div className="flex flex-col">
+          {s.dirs.map(dir => {
+            const dv = connLevel ? undefined : verdict?.dirs.find(x => x.dir === dir)
+            const label = dv ? (dv.state ? DIR_STATE[dv.state] : dv.reason) : ''
+            return (
+              <div key={dir} className="flex items-center gap-2.5 min-w-0 h-7" title={dv?.reason}>
+                <span
+                  className="shrink-0 w-1.5 h-1.5 rounded-full transition-colors"
+                  style={{ background: dirDot(dv) }}
+                />
+                <span className="flex-1 min-w-0 font-mono text-[12.5px] text-fg-dim truncate">{dir}</span>
+                {label && (
+                  <span
+                    className="shrink-0 text-[12px]"
+                    style={{ color: dv && !dv.ok ? 'var(--color-err-text)' : 'var(--color-mute-3)' }}
+                  >
+                    {label}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 px-4 py-2.5 border-t hair">
+        <span className={`flex-1 min-w-0 truncate text-[12px] ${stale ? 'text-warn-text' : 'text-mute-4'}`}>
+          {check === 'testing' ? '检测中…' : verdict ? ago(verdict.at, now) : '还没检测过'}
+        </span>
+        <Btn
+          onClick={onCheck}
+          disabled={check === 'testing'}
+          className="flex items-center gap-1 h-7 px-2.5 text-[12px] rounded-lg"
+        >
+          <Zap size={12} />
+          检测
+        </Btn>
       </div>
     </div>
   )
 }
 
-function GroupHeader({
-  g,
-  others,
-  onRename,
-  onUngroup
-}: {
-  g: Group
-  others: string[]
-  onRename: (to: string) => Promise<string | null>
-  onUngroup: () => void
-}) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState('')
-  const [err, setErr] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const cancelled = useRef(false)
-
-  const start = () => {
-    cancelled.current = false
-    setDraft(g.name)
-    setErr(null)
-    setEditing(true)
-  }
-  const save = async () => {
-    const to = draft.trim()
-    if (!to || to === g.name) {
-      setEditing(false)
-      return
-    }
-    setBusy(true)
-    const e = await onRename(to)
-    setBusy(false)
-    if (e) setErr(e)
-    else setEditing(false)
-  }
-
-  const merging = editing && draft.trim() !== g.name && others.includes(draft.trim())
-
+function MenuItem({ danger, onClick, children }: { danger?: boolean; onClick: () => void; children: ReactNode }) {
   return (
-    <div className="group px-1 pb-2">
-      <div className="flex items-center gap-[9px] min-h-7">
-        {editing ? (
-          <input
-            autoFocus
-            aria-label={`分组「${g.name}」的新名字`}
-            value={draft}
-            disabled={busy}
-            onChange={e => {
-              setDraft(e.target.value)
-              setErr(null)
-            }}
-            onFocus={e => e.currentTarget.select()}
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                void save()
-              }
-              if (e.key === 'Escape') {
-                cancelled.current = true
-                setEditing(false)
-              }
-            }}
-            onBlur={() => {
-              if (!busy && !cancelled.current) void save()
-            }}
-            className="h-7 w-44 px-2.5 rounded-md border field-edge sunken text-[12px] text-fg outline-0 focus:border-[rgba(124,124,245,.7)]"
-          />
-        ) : (
-          <span
-            className={`shrink-0 text-mute-4 ${
-              isAscii(g.label) ? 'font-mono text-[12px] uppercase tracking-[.14em]' : 'text-[12px] font-medium'
-            }`}
-          >
-            {g.label}
-          </span>
-        )}
-        {!editing && (
-          <span className="shrink-0 px-1.5 rounded-full bg-[rgba(255,255,255,.06)] text-[12px] leading-5 text-mute-3">
-            {g.servers.length}
-          </span>
-        )}
-        {merging && <span className="shrink-0 text-[12px] text-warn-text">会并入已有分组</span>}
-        <div className="flex-1 h-px bg-[rgba(255,255,255,.07)]" />
-        {g.name && !editing && (
-          <div className="flex items-center gap-[9px] opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-            <IconBtn onClick={start} className="w-[26px] h-[26px]" title="改名" aria-label={`给分组「${g.name}」改名`}>
-              <Pencil size={12} />
-            </IconBtn>
-            <IconBtn
-              onClick={onUngroup}
-              danger
-              className="w-[26px] h-[26px]"
-              title="解散分组"
-              aria-label={`解散分组「${g.name}」`}
-            >
-              <Trash size={12} />
-            </IconBtn>
-          </div>
-        )}
-      </div>
-      {err && <div className="mt-1 text-[12px] text-err-text">{err}</div>}
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-2 w-full px-2.5 py-1.5 border-0 rounded-lg bg-transparent text-left text-[13px] cursor-pointer ${
+        danger ? 'text-err-text hover:bg-[rgba(226,86,86,.14)]' : 'text-fg-soft hover:bg-[rgba(255,255,255,.08)]'
+      }`}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -269,8 +213,11 @@ function useNow(ms = 30_000) {
 }
 
 export function ServersView(p: Props) {
-  const count = p.groups.reduce((n, g) => n + g.servers.length, 0)
+  const count = p.servers.length
   const now = useNow()
+  const [tag, setTag] = useState<string | null>(null)
+  const active = tag && p.tags.includes(tag) ? tag : null
+  const shown = active ? p.servers.filter(s => s.tags?.includes(active)) : p.servers
 
   return (
     <div>
@@ -283,10 +230,15 @@ export function ServersView(p: Props) {
       />
 
       <div className="flex items-center gap-x-3 gap-y-2 flex-wrap mb-4">
-        <h2 className="m-0 shrink-0 text-[17px] font-bold tracking-[-0.01em]">服务器列表</h2>
-        <span className="shrink-0 whitespace-nowrap text-[13px] text-mute-2">
-          {p.loaded ? `${count} 台 · ${p.totalTargets} 个目录` : '载入中…'}
-        </span>
+        <h2 className="m-0 shrink-0 text-[17px] font-bold tracking-[-0.01em]">服务器</h2>
+        {p.loaded ? (
+          <>
+            <CountBadge n={count} />
+            <span className="shrink-0 whitespace-nowrap text-[13px] text-mute-2">共 {p.totalTargets} 个常用目录</span>
+          </>
+        ) : (
+          <span className="shrink-0 text-[13px] text-mute-2">载入中…</span>
+        )}
         <div className="flex-1" />
         <Btn onClick={p.onCheckAll} className="flex items-center gap-1.5 px-3 py-2 text-xs rounded-[10px]">
           <Zap />
@@ -316,16 +268,22 @@ export function ServersView(p: Props) {
           </p>
         </div>
       ) : (
-        p.groups.map(g => (
-          <div key={g.name} className="mb-5">
-            <GroupHeader
-              g={g}
-              others={p.groups.map(x => x.name).filter(n => n && n !== g.name)}
-              onRename={to => p.onRenameGroup(g.name, to)}
-              onUngroup={() => p.onUngroup(g.name)}
-            />
-            {g.servers.map(s => (
-              <ServerRow
+        <>
+          {p.tags.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 mb-3">
+              <Chip active={!active} onClick={() => setTag(null)}>
+                全部 {count}
+              </Chip>
+              {p.tags.map(t => (
+                <Chip key={t} active={active === t} onClick={() => setTag(active === t ? null : t)}>
+                  #{t} {p.servers.filter(s => s.tags?.includes(t)).length}
+                </Chip>
+              ))}
+            </div>
+          )}
+          <div className="grid gap-3 sm:grid-cols-2">
+            {shown.map(s => (
+              <ServerCard
                 key={s.id}
                 s={s}
                 check={p.checks[s.id]}
@@ -334,10 +292,11 @@ export function ServersView(p: Props) {
                 onCheck={() => p.onCheck(s.id)}
                 onEdit={() => p.onEdit(s.id)}
                 onRemove={() => p.onRemove(s.id)}
+                onTag={setTag}
               />
             ))}
           </div>
-        ))
+        </>
       )}
     </div>
   )

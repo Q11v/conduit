@@ -144,9 +144,14 @@ export function useConduit() {
     [toggle]
   )
 
-  const toggleGroup = useCallback(
-    (name: string) => {
-      const keys = servers.filter(s => (s.group || '') === name).flatMap(s => s.dirs.map(d => targetKey(s.id, d)))
+  const tags = useMemo(
+    () => [...new Set(servers.flatMap(s => s.tags ?? []))].sort((a, b) => a.localeCompare(b)),
+    [servers]
+  )
+
+  const toggleTag = useCallback(
+    (tag: string) => {
+      const keys = servers.filter(s => s.tags?.includes(tag)).flatMap(s => s.dirs.map(d => targetKey(s.id, d)))
       setSel(prev => {
         const next = new Set(prev)
         const allOn = keys.every(k => next.has(k))
@@ -159,18 +164,6 @@ export function useConduit() {
     },
     [servers]
   )
-
-  const groups = useMemo(() => {
-    const map = new Map<string, Server[]>()
-    for (const s of servers) {
-      const g = s.group || ''
-      if (!map.has(g)) map.set(g, [])
-      map.get(g)!.push(s)
-    }
-    return [...map.keys()]
-      .sort((a, b) => (a ? 0 : 1) - (b ? 0 : 1) || a.localeCompare(b))
-      .map(name => ({ name, label: name || '未分组', servers: map.get(name)! }))
-  }, [servers])
 
   const selected = useMemo<SelectedTarget[]>(() => {
     const out: SelectedTarget[] = []
@@ -219,8 +212,8 @@ export function useConduit() {
   const openNew = useCallback(() => {
     setForm('new')
     setFormMsg(null)
-    setDraft(emptyDraft(groups[0]?.name ?? ''))
-  }, [groups])
+    setDraft(emptyDraft())
+  }, [])
 
   const openEdit = useCallback(
     (id: string) => {
@@ -230,7 +223,7 @@ export function useConduit() {
       setFormMsg(null)
       setDraft({
         name: s.name && s.name !== s.host ? s.name : '',
-        group: s.group || '',
+        tags: [...(s.tags ?? [])],
         host: s.host,
         port: s.port ? String(s.port) : '',
         dirs: s.dirs.length ? [...s.dirs] : [''],
@@ -296,30 +289,6 @@ export function useConduit() {
       await reloadServers()
     },
     [servers, form, closeForm, reloadServers]
-  )
-
-  const renameGroup = useCallback(
-    async (from: string, to: string) => {
-      const r = await api.renameGroup(from, to)
-      if (!r.ok) return why(r)
-      await reloadServers()
-      return null
-    },
-    [reloadServers]
-  )
-
-  const ungroup = useCallback(
-    async (name: string) => {
-      const n = servers.filter(s => (s.group || '') === name).length
-      if (!confirm(`解散分组「${name}」？\n里面的 ${n} 台服务器不会删除，会移到「未分组」。`)) return
-      const r = await api.renameGroup(name, '')
-      if (!r.ok) {
-        alert(why(r))
-        return
-      }
-      await reloadServers()
-    },
-    [servers, reloadServers]
   )
 
   const pickFile = useCallback(async (file: File) => {
@@ -602,12 +571,12 @@ export function useConduit() {
     setView,
     loaded,
     servers,
-    groups,
+    tags,
     selected,
     sel,
     toggle,
     toggleByKey,
-    toggleGroup,
+    toggleTag,
     totalTargets,
     checks,
     probeOf,
@@ -624,8 +593,6 @@ export function useConduit() {
     checkForm,
     submitForm,
     remove,
-    renameGroup,
-    ungroup,
     src,
     setSrc: typeSrc,
     size,

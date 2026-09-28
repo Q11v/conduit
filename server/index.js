@@ -12,7 +12,7 @@ import { basename, extname, join, dirname, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseTarget, sshConfigHosts, cleanPullPaths, checkLocalDir } from './targets.js'
 import { pushOne, pullOne, checkTarget, browseRemote } from './transfer.js'
-import { loadServers, addServer, updateServer, removeServer, renameGroup, withSecret, CONFIG_PATH } from './servers.js'
+import { loadServers, addServer, updateServer, removeServer, withSecret, CONFIG_PATH } from './servers.js'
 import { keychainAvailable } from './secrets.js'
 import { loadPresets, addPreset, removePreset, touchPreset, PRESETS_PATH } from './presets.js'
 import { log, fail, event, recentEvents } from './log.js'
@@ -232,15 +232,6 @@ app.post('/api/servers', async c => {
 app.put('/api/servers/:id', async c => {
   try {
     return c.json(await updateServer(c.req.param('id'), await c.req.json()))
-  } catch (err) {
-    return c.json({ error: err.message }, 400)
-  }
-})
-
-app.post('/api/groups/rename', async c => {
-  try {
-    const { from, to } = await c.req.json()
-    return c.json(await renameGroup(from, to))
   } catch (err) {
     return c.json({ error: err.message }, 400)
   }
