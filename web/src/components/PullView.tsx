@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, Close, FileIcon, Folder } from './Icons'
-import { Btn, IconBtn, SectionHeader } from './ui'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { ArrowDown, ArrowUp, Chevron, Close, FileIcon, Folder } from './Icons'
+import { Btn, Chip, CountBadge, IconBtn, PrimaryAction, ProbeBadge, StatusLine, StepLabel } from './ui'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Hero } from './Hero'
 import * as api from '../api'
 import { formatSize, why } from '../api'
-import { PROBE } from '../probe'
 import type { Listing, Probe, Server } from '../types'
 import type { Status } from '../useConduit'
 
@@ -37,12 +36,15 @@ interface Props {
 
 const joinPath = (dir: string, name: string) => (dir === '/' ? `/${name}` : `${dir}/${name}`)
 const parentOf = (dir: string) => dir.replace(/\/[^/]+\/?$/, '') || '/'
+const baseOf = (path: string) => path.replace(/\/+$/, '').split('/').pop() || '/'
+const LOCAL_DIRS = ['Downloads', 'Desktop']
 
 function useBrowser(server: Server | null) {
   const [input, setInput] = useState('')
   const [listing, setListing] = useState<Listing | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [kinds, setKinds] = useState<Record<string, 'dir' | 'file'>>({})
   const seq = useRef(0)
 
   const open = useCallback(
@@ -59,8 +61,14 @@ function useBrowser(server: Server | null) {
         return null
       }
       setError(null)
-      setListing(r as Listing)
-      setInput(r.path)
+      const l = r as Listing
+      setListing(l)
+      setInput(l.path)
+      setKinds(k => {
+        const next: Record<string, 'dir' | 'file'> = { ...k, [l.path]: 'dir' }
+        for (const e of l.entries) next[joinPath(l.path, e.name)] = e.type
+        return next
+      })
       return r as Listing
     },
     [server]
@@ -72,11 +80,12 @@ function useBrowser(server: Server | null) {
     if (server) void open(server.dirs[0] ?? '~')
   }, [server?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { input, setInput, listing, loading, error, open }
+  return { input, setInput, listing, loading, error, open, kinds }
 }
 
 export function PullView(p: Props) {
   const b = useBrowser(p.server)
+  const [editing, setEditing] = useState(false)
   const live = p.ready && !p.busy
   const cwd = b.listing?.path ?? null
 
@@ -123,21 +132,36 @@ export function PullView(p: Props) {
     )
   }
 
-  const pr = PROBE[p.probeOf(p.server.id)]
   const cwdSelected = cwd !== null && p.paths.includes(cwd)
+  const entries = b.listing?.entries ?? []
+  const entryPaths = entries.map(e => joinPath(b.listing!.path, e.name))
+  const pickedHere = entryPaths.filter(path => p.paths.includes(path)).length
+  const allState = entries.length > 0 && pickedHere === entries.length ? true : pickedHere > 0 ? 'indeterminate' : false
+  const toggleAll = () =>
+    entryPaths.forEach(path => {
+      if (allState === true || !p.paths.includes(path)) p.onTogglePath(path)
+    })
+  const dest = p.localDir.trim().replace(/(.)\/+$/, '$1')
+  const crumbs = cwd
+    ? cwd
+        .split('/')
+        .filter(Boolean)
+        .map((seg, i, all) => ({ seg, path: `/${all.slice(0, i + 1).join('/')}` }))
+    : []
 
   return (
     <div>
       {header}
 
-      <section className="border hair-2 rounded-2xl panel mb-7">
-        <div className="p-[18px]">
-          <SectionHeader step="01" title="源服务器" hint="一次从一台机器拉" />
-          <div className="flex items-center gap-3 flex-wrap">
+      <section className="flex flex-wrap items-end gap-x-3 gap-y-3 p-4 mb-3 border hair-2 rounded-2xl panel">
+        <div className="flex-1 min-w-[16rem]">
+          <StepLabel step="01" title="源服务器" />
+          <span className="relative flex items-center">
             <select
               value={p.server.id}
               onChange={e => p.onServer(e.target.value)}
-              className="min-w-[14rem] h-9 px-[11px] rounded-[9px] border field-edge sunken text-fg text-[13px] outline-0 focus:border-[rgba(124,124,245,.7)]"
+              title={`${p.server.host}${p.server.port ? `:${p.server.port}` : ''}`}
+              className="flex-1 min-w-0 h-9 pl-[11px] pr-24 rounded-[9px] border field-edge sunken text-fg font-mono text-[13px] outline-0 focus:border-[rgba(124,124,245,.7)]"
             >
               {p.groups.map(g => (
                 <optgroup key={g.name} label={g.label}>
@@ -149,199 +173,278 @@ export function PullView(p: Props) {
                 </optgroup>
               ))}
             </select>
-            <span className="flex items-center gap-1.5 text-[12px]" style={{ color: pr.fg }}>
-              <span className={`w-1.5 h-1.5 rounded-full ${pr.anim}`} style={{ background: pr.dot }} />
-              {pr.label}
-            </span>
-            <span className="min-w-0 font-mono text-[12px] text-mute-3 truncate">
-              {p.server.host}
-              {p.server.port ? `:${p.server.port}` : ''}
-            </span>
-          </div>
+            <ProbeBadge probe={p.probeOf(p.server.id)} className="pointer-events-none absolute right-8" />
+          </span>
         </div>
 
-        <div className="px-[18px] py-[18px] border-t hair">
-          <SectionHeader
-            step="02"
-            title="远端路径"
-            hint="点目录名进入，勾选框选中；也可以直接粘贴路径回车"
-            aside={<>已选 {p.paths.length} 项</>}
-          />
+        <span className="hidden sm:flex items-center h-9 text-mute-4">→</span>
 
+        <div className="flex-1 min-w-[16rem]">
+          <StepLabel step="02" title="本地目录" />
+          <span className="flex items-center gap-2">
+            <input
+              value={p.localDir}
+              onChange={e => p.onLocalDir(e.target.value)}
+              spellCheck={false}
+              placeholder="~/Downloads"
+              className="flex-1 min-w-0 h-9 px-[11px] rounded-[9px] border field-edge sunken font-mono text-[13px] text-fg outline-0 focus:border-[rgba(124,124,245,.7)]"
+            />
+            {LOCAL_DIRS.map(d => (
+              <Chip key={d} size="md" active={dest === `~/${d}`} onClick={() => p.onLocalDir(`~/${d}`)}>
+                {d}
+              </Chip>
+            ))}
+          </span>
+        </div>
+      </section>
+
+      <div className="grid gap-3 mb-7 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <section className="flex flex-col min-w-0 border hair-2 rounded-2xl panel overflow-hidden lg:h-[540px]">
           <form
             onSubmit={e => {
               e.preventDefault()
+              setEditing(false)
               void go(b.input)
             }}
-            className="flex items-center gap-1.5 mb-2"
+            className="p-3 border-b hair"
           >
-            <IconBtn
-              type="button"
-              onClick={() => cwd && void b.open(parentOf(cwd))}
-              disabled={!cwd || cwd === '/'}
-              className="w-9 h-9 border hair-3 rounded-[9px] disabled:opacity-40 disabled:cursor-not-allowed"
-              title="上一级"
-            >
-              <ArrowUp size={14} />
-            </IconBtn>
-            <input
-              value={b.input}
-              onChange={e => b.setInput(e.target.value)}
-              spellCheck={false}
-              placeholder="/var/log 或 ~/backups"
-              className="flex-1 min-w-0 h-9 px-[11px] rounded-[9px] border field-edge sunken font-mono text-[13px] text-fg outline-0 focus:border-[rgba(124,124,245,.7)]"
-            />
-            <Btn type="submit" className="px-3.5 h-9 text-[13px]">
-              打开
-            </Btn>
+            <StepLabel step="03" title="远端路径" hint="勾选要拉的文件或目录" />
+            <div className="flex flex-1 min-w-0 items-center h-9 rounded-[9px] border field-edge sunken focus-within:border-[rgba(124,124,245,.7)]">
+              <IconBtn
+                type="button"
+                onClick={() => cwd && void b.open(parentOf(cwd))}
+                disabled={!cwd || cwd === '/'}
+                className="w-8 h-full rounded-l-[8px] rounded-r-none border-r hair-3 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                title="上一级"
+              >
+                <ArrowUp size={14} />
+              </IconBtn>
+              {editing || !cwd ? (
+                <input
+                  autoFocus={editing}
+                  value={b.input}
+                  onChange={e => b.setInput(e.target.value)}
+                  onBlur={() => setEditing(false)}
+                  onKeyDown={e => {
+                    if (e.key === 'Escape') {
+                      b.setInput(cwd ?? '')
+                      setEditing(false)
+                    }
+                  }}
+                  spellCheck={false}
+                  placeholder="/var/log 或 ~/backups，回车打开"
+                  className="flex-1 min-w-0 h-full px-[11px] border-0 bg-transparent font-mono text-[13px] text-fg outline-0"
+                />
+              ) : (
+                <div
+                  onClick={() => setEditing(true)}
+                  title="点空白处可输入或粘贴路径"
+                  className="flex flex-1 min-w-0 items-center h-full px-1.5 overflow-x-auto font-mono text-[13px] cursor-text"
+                >
+                  <CrumbBtn onClick={() => void b.open('/')}>/</CrumbBtn>
+                  {crumbs.map((c, i) => (
+                    <span key={c.path} className="flex shrink-0 items-center">
+                      {i > 0 && <span className="text-mute-5">/</span>}
+                      <CrumbBtn current={i === crumbs.length - 1} onClick={() => void b.open(c.path)}>
+                        {c.seg}
+                      </CrumbBtn>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {b.loading && <span className="shrink-0 pr-2.5 text-[12px] text-warn-text">读取中…</span>}
+            </div>
           </form>
 
-          <div className="flex flex-wrap gap-1.5 mb-3">
+          <div className="flex items-center gap-1.5 px-3 py-2 border-b hair overflow-x-auto">
+            <span className="shrink-0 mr-0.5 text-[12px] text-mute-4">快捷</span>
             {['~', ...p.server.dirs].map(d => (
-              <button
-                key={d}
-                onClick={() => void b.open(d)}
-                className="px-2 py-[3px] border hair-2 rounded-md bg-[rgba(255,255,255,.03)] font-mono text-[12px] text-mute-2 cursor-pointer hover:text-fg-dim hover:border-[rgba(255,255,255,.2)]"
-              >
+              <Chip key={d} active={d === cwd} onClick={() => void b.open(d)}>
                 {d}
-              </button>
+              </Chip>
             ))}
           </div>
 
-          <div className="border hair-2 rounded-xl bg-[rgba(0,0,0,.3)] overflow-hidden">
+          <div className="flex items-center gap-2.5 px-4 h-9 border-b hair text-[12px] text-mute-3">
+            <Checkbox
+              checked={allState}
+              onCheckedChange={toggleAll}
+              disabled={entries.length === 0}
+              aria-label="全选本目录下的条目"
+            />
+            <span className="flex-1 min-w-0 truncate">
+              名称 · {entries.length} 项{pickedHere ? `，已选 ${pickedHere}` : ''}
+            </span>
             {cwd && (
-              <div className="flex items-center gap-2 px-3 py-2 border-b hair">
-                <span className="flex-1 min-w-0 font-mono text-[12px] text-mute-3 truncate" title={cwd}>
-                  {cwd}
-                </span>
-                {b.loading && <span className="shrink-0 text-[12px] text-warn-text">读取中…</span>}
-                <button
-                  onClick={() => p.onTogglePath(cwd)}
-                  className="shrink-0 p-0 border-0 bg-transparent text-link text-[12px] cursor-pointer hover:underline"
-                >
-                  {cwdSelected ? '取消选择整个目录' : '选择整个目录'}
-                </button>
-              </div>
+              <Chip
+                active={cwdSelected}
+                onClick={() => p.onTogglePath(cwd)}
+                title="把当前目录本身作为一项拉取（包含之后新增的文件）"
+              >
+                {cwdSelected ? '✓ ' : ''}拉整个 {baseOf(cwd)}/
+              </Chip>
             )}
-
-            {b.error && (
-              <div className="px-3 py-2 border-b hair text-[12px] leading-snug text-err-text break-words">
-                {b.error}
-              </div>
-            )}
-
-            <div className="max-h-[320px] overflow-auto">
-              {!b.listing && b.loading && <div className="px-3 py-6 text-center text-[12px] text-mute-4">读取中…</div>}
-              {b.listing && b.listing.entries.length === 0 && (
-                <div className="px-3 py-6 text-center text-[12px] text-mute-4">空目录</div>
-              )}
-              {b.listing?.entries.map(e => {
-                const path = joinPath(b.listing!.path, e.name)
-                const checked = p.paths.includes(path)
-                const isDir = e.type === 'dir'
-                return (
-                  <div
-                    key={e.name}
-                    className={`flex items-center gap-2.5 px-3 py-1.5 transition-colors duration-150 ${
-                      checked ? 'bg-[rgba(124,124,245,.12)]' : 'hover:bg-[rgba(255,255,255,.04)]'
-                    }`}
-                  >
-                    <Checkbox
-                      checked={checked}
-                      onCheckedChange={() => p.onTogglePath(path)}
-                      aria-label={`选择 ${e.name}`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => (isDir ? void b.open(path) : p.onTogglePath(path))}
-                      className="flex flex-1 min-w-0 items-center gap-2 p-0 border-0 bg-transparent text-left cursor-pointer"
-                    >
-                      {isDir ? (
-                        <Folder className="shrink-0 text-violet-text" />
-                      ) : (
-                        <FileIcon size={14} className="shrink-0 text-mute-3" />
-                      )}
-                      <span className={`min-w-0 font-mono text-[12px] break-all ${isDir ? 'text-fg' : 'text-fg-dim'}`}>
-                        {e.name}
-                        {isDir ? '/' : ''}
-                      </span>
-                    </button>
-                    {e.size != null && (
-                      <span className="shrink-0 font-mono text-[12px] text-mute-4">{formatSize(e.size)}</span>
-                    )}
-                  </div>
-                )
-              })}
-              {b.listing?.truncated && (
-                <div className="px-3 py-2 border-t hair text-[12px] text-mute-3">
-                  条目太多，只列了前 {b.listing.entries.length} 项 —— 其余的请直接在上面填路径
-                </div>
-              )}
-            </div>
           </div>
 
-          {p.paths.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-3">
-              {p.paths.map(path => (
-                <span
-                  key={path}
-                  className="flex min-w-0 max-w-full items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-lg bg-[rgba(255,255,255,.06)]"
+          {b.error && (
+            <div className="px-4 py-2 border-b hair text-[12px] leading-snug text-err-text break-words">{b.error}</div>
+          )}
+
+          <div className="flex-1 min-h-0 max-h-[360px] lg:max-h-none overflow-auto">
+            {!b.listing && b.loading && <div className="px-3 py-6 text-center text-[12px] text-mute-4">读取中…</div>}
+            {b.listing && entries.length === 0 && (
+              <div className="px-3 py-6 text-center text-[12px] text-mute-4">空目录</div>
+            )}
+            {entries.map((e, i) => {
+              const path = entryPaths[i]
+              const checked = p.paths.includes(path)
+              const isDir = e.type === 'dir'
+              return (
+                <div
+                  key={e.name}
+                  className={`group flex items-center gap-2.5 px-4 h-9 border-b border-[rgba(255,255,255,.04)] transition-colors duration-150 ${
+                    checked ? 'bg-[rgba(124,124,245,.1)]' : 'hover:bg-[rgba(255,255,255,.035)]'
+                  }`}
                 >
-                  <span className="min-w-0 font-mono text-[12px] text-fg-dim break-all">{path}</span>
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={() => p.onTogglePath(path)}
+                    aria-label={`选择 ${e.name}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => (isDir ? void b.open(path) : p.onTogglePath(path))}
+                    title={path}
+                    className="flex flex-1 min-w-0 items-center gap-2 h-full p-0 border-0 bg-transparent text-left cursor-pointer"
+                  >
+                    {isDir ? (
+                      <Folder className="shrink-0 text-violet-text" />
+                    ) : (
+                      <FileIcon size={14} className="shrink-0 text-mute-3" />
+                    )}
+                    <span className={`min-w-0 font-mono text-[12px] truncate ${isDir ? 'text-fg' : 'text-fg-dim'}`}>
+                      {e.name}
+                      {isDir ? '/' : ''}
+                    </span>
+                  </button>
+                  {e.size != null && (
+                    <span className="shrink-0 font-mono text-[12px] tabular-nums text-mute-4">
+                      {formatSize(e.size)}
+                    </span>
+                  )}
+                  {isDir && (
+                    <IconBtn onClick={() => void b.open(path)} className="w-6 h-6" title="进入">
+                      <Chevron size={12} />
+                    </IconBtn>
+                  )}
+                </div>
+              )
+            })}
+            {b.listing?.truncated && (
+              <div className="px-4 py-2 text-[12px] text-mute-3">
+                条目太多，只列了前 {entries.length} 项 —— 其余的请直接在路径栏填
+              </div>
+            )}
+          </div>
+
+          <div className="px-4 py-2 border-t hair text-[12px] text-mute-4">
+            勾选框选中 · 点目录名或 › 进入 · 点路径栏空白处可粘贴路径
+          </div>
+        </section>
+
+        <aside className="flex flex-col min-w-0 border hair-2 rounded-2xl panel overflow-hidden lg:h-[540px]">
+          <div className="px-4 pt-3 pb-1 border-b hair">
+            <StepLabel
+              title="待拉取"
+              count={<CountBadge n={p.paths.length} />}
+              aside={
+                p.paths.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => p.paths.forEach(path => p.onTogglePath(path))}
+                    className="p-0 border-0 bg-transparent text-[12px] text-mute-3 cursor-pointer hover:text-err-text"
+                  >
+                    清空
+                  </button>
+                )
+              }
+            />
+          </div>
+
+          <div className="flex-1 min-h-0 max-h-[320px] lg:max-h-none overflow-auto">
+            {p.paths.length === 0 && (
+              <div className="px-4 py-10 text-center text-[12px] leading-relaxed text-mute-4">
+                还没有选中项
+                <br />
+                在左侧勾选文件或目录
+              </div>
+            )}
+            {p.paths.map(path => {
+              const isDir = b.kinds[path] === 'dir'
+              const name = baseOf(path)
+              return (
+                <div
+                  key={path}
+                  className="group flex items-start gap-2 px-4 py-2.5 border-b border-[rgba(255,255,255,.04)]"
+                >
+                  {isDir ? (
+                    <Folder className="shrink-0 mt-[2px] text-violet-text" />
+                  ) : (
+                    <FileIcon size={14} className="shrink-0 mt-[2px] text-mute-3" />
+                  )}
+                  <div className="flex-1 min-w-0 font-mono text-[12px]" title={path}>
+                    <div className="truncate text-fg">
+                      {name}
+                      {isDir ? '/' : ''}
+                    </div>
+                    <div className="truncate text-mute-4">
+                      → {dest || '（未填本地目录）'}/{name}
+                      {isDir ? '/' : ''}
+                    </div>
+                  </div>
                   <IconBtn
                     onClick={() => p.onTogglePath(path)}
-                    className="w-[16px] h-[16px] rounded"
+                    className="w-5 h-5 mt-[1px] rounded"
                     title="移出本次拉取"
                   >
                     <Close size={10} />
                   </IconBtn>
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="px-[18px] py-[18px] border-t hair">
-          <SectionHeader step="03" title="本地目录" hint="每项落地为「本地目录/同名」，已有的同名文件会被覆盖" />
-          <input
-            value={p.localDir}
-            onChange={e => p.onLocalDir(e.target.value)}
-            spellCheck={false}
-            placeholder="~/Downloads"
-            className="w-full h-9 px-[11px] rounded-[9px] border field-edge sunken font-mono text-[13px] text-fg outline-0 focus:border-[rgba(124,124,245,.7)]"
-          />
-        </div>
-
-        <div className="flex items-center gap-3 flex-wrap px-[18px] py-3 border-t hair bg-[rgba(255,255,255,.02)] rounded-b-2xl">
-          <div
-            className="flex-1 min-w-[6rem] text-[13px] truncate"
-            style={{ color: p.status.bad ? 'var(--color-err-text)' : 'var(--color-mute-2)' }}
-          >
-            {p.status.text}
+                </div>
+              )
+            })}
           </div>
 
-          <Btn onClick={p.onSave} className="px-3.5 py-2 text-[13px] font-medium rounded-[10px]">
-            存为方案
-          </Btn>
-
-          <button
-            onClick={p.onPull}
-            disabled={!live}
-            className="flex shrink-0 items-center gap-2 px-5 py-2 border-0 rounded-[10px] text-[13px] font-semibold whitespace-nowrap transition-[filter] duration-150 enabled:hover:brightness-90"
-            style={{
-              background: live
-                ? 'linear-gradient(150deg,var(--color-violet-btn),var(--color-violet-lo))'
-                : 'rgba(255,255,255,.07)',
-              color: live ? '#fff' : 'var(--color-mute-4)',
-              cursor: live ? 'pointer' : 'default',
-              boxShadow: live ? '0 4px 20px rgba(124,105,245,.36)' : 'none'
-            }}
-          >
-            <ArrowDown />
-            {p.busy ? '拉取中…' : p.paths.length ? `拉取 ${p.paths.length} 项` : '拉取'}
-          </button>
-        </div>
-      </section>
+          <div className="flex flex-col gap-3 p-4 border-t hair bg-[rgba(255,255,255,.02)]">
+            <StatusLine status={p.status} className="min-h-[18px] break-words" />
+            <div className="flex gap-2">
+              <Btn onClick={p.onSave} className="flex-1 py-2 text-[13px] font-medium rounded-[10px]">
+                存为方案
+              </Btn>
+              <PrimaryAction live={live} onClick={p.onPull} className="flex-[1.4] px-4">
+                <ArrowDown />
+                {p.busy ? '拉取中…' : p.paths.length ? `拉取 ${p.paths.length} 项` : '拉取'}
+              </PrimaryAction>
+            </div>
+          </div>
+        </aside>
+      </div>
     </div>
+  )
+}
+
+function CrumbBtn({ current, onClick, children }: { current?: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={e => {
+        e.stopPropagation()
+        onClick()
+      }}
+      className={`shrink-0 px-1 py-[1px] border-0 rounded bg-transparent font-mono text-[13px] cursor-pointer hover:bg-[rgba(255,255,255,.08)] ${
+        current ? 'text-fg' : 'text-mute-3 hover:text-fg-dim'
+      }`}
+    >
+      {children}
+    </button>
   )
 }

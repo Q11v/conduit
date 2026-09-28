@@ -34,8 +34,19 @@ const loadPullDir = () => {
   }
 }
 
+const VIEW_KEY = 'conduit.view'
+const VIEWS: View[] = ['push', 'pull', 'log', 'servers']
+const loadView = (): View => {
+  try {
+    const v = localStorage.getItem(VIEW_KEY) as View | null
+    return v && VIEWS.includes(v) ? v : 'servers'
+  } catch {
+    return 'servers'
+  }
+}
+
 export function useConduit() {
-  const [view, setView] = useState<View>('servers')
+  const [view, setView] = useState<View>(loadView)
   const [servers, setServers] = useState<Server[]>([])
   const [sel, setSel] = useState<Set<string>>(new Set())
   const [checks, setChecks] = useState<Record<string, Check>>({})
@@ -94,6 +105,11 @@ export function useConduit() {
     })
   }, [])
   useEffect(() => () => unsubRef.current?.(), [])
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_KEY, view)
+    } catch {}
+  }, [view])
 
   useEffect(() => {
     if (view !== 'log') return

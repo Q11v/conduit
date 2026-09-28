@@ -1,5 +1,4 @@
-import { Github, List, Logo } from './Icons'
-import { REPO } from '@/lib/links'
+import { List, Logo } from './Icons'
 import type { View } from '../useConduit'
 
 interface Props {
@@ -51,30 +50,20 @@ export function TopBar({ view, onView }: Props) {
 
         <div className="flex-1" />
 
-        <div className="flex shrink-0 items-center gap-0.5">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             onClick={() => onView('log')}
             title="活动记录"
             aria-label="活动记录"
             aria-current={view === 'log' ? 'page' : undefined}
-            className={`flex items-center justify-center w-8 h-8 p-0 border-0 rounded-[9px] cursor-pointer transition-all duration-150 ${
+            className={`flex items-center justify-center size-[30px] p-0 rounded-[8px] border cursor-pointer transition-all duration-150 ${
               view === 'log'
-                ? 'bg-[rgba(124,124,245,.22)] text-white'
-                : 'bg-transparent text-mute hover:bg-[rgba(255,255,255,.08)] hover:text-fg-dim'
+                ? 'bg-[rgba(124,124,245,.22)] hair-3 text-white'
+                : 'panel hair text-mute hover:bg-[rgba(255,255,255,.08)] hover:text-fg-dim'
             }`}
           >
-            <List />
+            <List size={14} />
           </button>
-          <a
-            href={REPO}
-            target="_blank"
-            rel="noreferrer noopener"
-            title="GitHub"
-            aria-label="GitHub"
-            className="flex items-center justify-center w-8 h-8 rounded-[9px] text-mute no-underline transition-all duration-150 hover:bg-[rgba(255,255,255,.08)] hover:text-fg-dim"
-          >
-            <Github />
-          </a>
         </div>
       </div>
     </header>

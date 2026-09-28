@@ -1,8 +1,8 @@
-import { useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { useRef, useState, type KeyboardEvent } from 'react'
 import { Chevron, Plus } from './Icons'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { PROBE } from '../probe'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { ProbeBadge } from './ui'
 import type { Probe, Server } from '../types'
 import { targetKey } from '../types'
 
@@ -28,7 +28,6 @@ interface Props {
   onAdhoc: (v: string) => void
   onGoServers: () => void
   empty: boolean
-  anchor: RefObject<HTMLElement | null>
 }
 
 export function TargetPicker(p: Props) {
@@ -56,7 +55,6 @@ export function TargetPicker(p: Props) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverAnchor virtualRef={p.anchor} />
       <PopoverTrigger asChild>
         {p.empty ? (
           <button
@@ -111,17 +109,15 @@ export function TargetPicker(p: Props) {
                 </div>
 
                 {g.servers.map(s => {
-                  const pr = PROBE[p.probeOf(s.id)]
                   return (
                     <div key={s.id} className="mb-1.5 last:mb-0">
                       <div className="flex items-center gap-2 px-1.5 py-1">
                         <span className="min-w-0 text-[12px] font-medium truncate">{s.name}</span>
-                        <span
-                          className={`w-[5px] h-[5px] shrink-0 rounded-full ${pr.anim}`}
-                          style={{ background: pr.dot }}
-                          title={pr.label}
-                        />
-                        <span className="min-w-0 font-mono text-[12px] text-mute-4 truncate">{s.host}</span>
+                        {s.name !== s.host && (
+                          <span className="min-w-0 font-mono text-[12px] text-mute-4 truncate">{s.host}</span>
+                        )}
+                        <span className="flex-1" />
+                        <ProbeBadge probe={p.probeOf(s.id)} />
                       </div>
                       {s.dirs.map(dir => {
                         const checked = p.sel.has(targetKey(s.id, dir))

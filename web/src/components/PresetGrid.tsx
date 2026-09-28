@@ -16,6 +16,7 @@ interface Props<P extends Preset> {
 interface Summary {
   count: string
   broken: string | null
+  source?: string
   rows: [string, React.ReactNode][]
 }
 
@@ -44,11 +45,12 @@ function describePush(p: PushPreset, servers: Server[]): Summary {
 
 function describePull(p: PullPreset, servers: Server[]): Summary {
   const s = servers.find(x => x.id === p.serverId)
+  const addr = s ? `${s.host}${s.port ? ':' + s.port : ''}` : ''
   return {
     count: `${p.paths.length} 项`,
     broken: s ? null : '服务器已删除',
+    source: s ? (s.name === s.host || s.name === addr ? addr : `${s.name} · ${addr}`) : undefined,
     rows: [
-      ['来源', s ? `${s.name} · ${s.host}${s.port ? ':' + s.port : ''}` : none('已删除的服务器')],
       ['路径', p.paths.join('、')],
       ['本地', p.localDir]
     ]
@@ -121,6 +123,12 @@ function Card({
 
         <div className="flex-1 min-w-[10rem] flex items-center gap-2.5 flex-wrap">
           <span className="text-[13.5px] font-semibold truncate max-w-full">{p.name}</span>
+          {summary.source && (
+            <span className="min-w-0 font-mono text-[12.5px] text-fg-dim truncate">
+              <span className="text-mute-4">@ </span>
+              {summary.source}
+            </span>
+          )}
           <span className="shrink-0 px-2.5 py-0.5 rounded-full bg-[rgba(255,255,255,.07)] text-[12px] text-fg-dim">
             {summary.count}
           </span>

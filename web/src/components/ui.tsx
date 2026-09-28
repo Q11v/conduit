@@ -1,4 +1,8 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { Close } from './Icons'
+import { PROBE } from '../probe'
+import type { Probe } from '../types'
+
 type BtnVariant = 'ghost' | 'primary' | 'violet' | 'cyan'
 
 const VARIANT: Record<BtnVariant, string> = {
@@ -87,5 +91,147 @@ export function SectionHeader({
         </>
       )}
     </div>
+  )
+}
+
+export function StepLabel({
+  step,
+  title,
+  count,
+  hint,
+  aside
+}: {
+  step?: string
+  title: string
+  count?: ReactNode
+  hint?: string
+  aside?: ReactNode
+}) {
+  return (
+    <div className="flex items-center gap-2 min-w-0 min-h-5 mb-2">
+      {step && <span className="shrink-0 font-mono text-[12px] tracking-[.12em] text-violet-text/70">{step}</span>}
+      <span className="shrink-0 text-[13px] font-semibold text-fg">{title}</span>
+      {count}
+      {hint && <span className="min-w-0 truncate text-[12px] text-mute-3">{hint}</span>}
+      {aside && (
+        <>
+          <span className="flex-1" />
+          <span className="shrink-0 text-[12px] text-mute-3">{aside}</span>
+        </>
+      )}
+    </div>
+  )
+}
+
+export function CountBadge({ n, total }: { n: number; total?: number }) {
+  return (
+    <span className="shrink-0 min-w-5 px-1.5 rounded-md bg-[rgba(124,124,245,.18)] text-center font-mono text-[12px] leading-5 text-violet-text">
+      {n}
+      {total != null && <span className="text-violet-text/55"> / {total}</span>}
+    </span>
+  )
+}
+
+export function ProbeBadge({ probe, className = '' }: { probe: Probe; className?: string }) {
+  const pr = PROBE[probe]
+  return (
+    <span
+      className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[12px] ${className}`}
+      style={{ color: pr.fg }}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${pr.anim}`} style={{ background: pr.dot }} />
+      {pr.label}
+    </span>
+  )
+}
+
+const CHIP_TONE = {
+  on: 'border-[rgba(124,124,245,.45)] bg-[rgba(124,124,245,.14)] text-violet-text',
+  off: 'hair-2 bg-[rgba(255,255,255,.03)] text-mute-2 hover:text-fg-dim hover:border-[rgba(255,255,255,.2)]'
+}
+
+export function Chip({
+  active,
+  size = 'sm',
+  onClick,
+  onRemove,
+  removeTitle = '移除',
+  title,
+  children
+}: {
+  active?: boolean
+  size?: 'sm' | 'md'
+  onClick?: () => void
+  onRemove?: () => void
+  removeTitle?: string
+  title?: string
+  children: ReactNode
+}) {
+  const box = size === 'md' ? 'h-9 px-2.5 rounded-[9px]' : 'h-6 px-2 rounded-md'
+  if (onRemove) {
+    return (
+      <span
+        title={title}
+        className={`flex min-w-0 max-w-full shrink-0 items-center gap-1 pr-0.5 border font-mono text-[12px] ${box} ${CHIP_TONE.off} text-fg-dim`}
+      >
+        <span className="min-w-0 truncate">{children}</span>
+        <IconBtn onClick={onRemove} className="w-[18px] h-[18px] rounded" title={removeTitle}>
+          <Close size={10} />
+        </IconBtn>
+      </span>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={`flex shrink-0 items-center border font-mono text-[12px] whitespace-nowrap cursor-pointer transition-colors duration-150 ${box} ${
+        active ? CHIP_TONE.on : CHIP_TONE.off
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+export function StatusLine({ status, className = '' }: { status: { text: string; bad: boolean }; className?: string }) {
+  return (
+    <div
+      className={`min-w-0 text-[13px] leading-snug ${className}`}
+      style={{ color: status.bad ? 'var(--color-err-text)' : 'var(--color-mute-2)' }}
+    >
+      {status.text}
+    </div>
+  )
+}
+
+export function PrimaryAction({
+  live,
+  onClick,
+  className = '',
+  children
+}: {
+  live: boolean
+  onClick: () => void
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={!live}
+      className={`flex shrink-0 items-center justify-center gap-2 px-5 py-2 border-0 rounded-[10px] text-[13px] font-semibold whitespace-nowrap transition-[filter] duration-150 enabled:hover:brightness-90 ${className}`}
+      style={{
+        background: live
+          ? 'linear-gradient(150deg,var(--color-violet-btn),var(--color-violet-lo))'
+          : 'rgba(255,255,255,.07)',
+        color: live ? '#fff' : 'var(--color-mute-4)',
+        cursor: live ? 'pointer' : 'default',
+        boxShadow: live ? '0 4px 20px rgba(124,105,245,.36)' : 'none'
+      }}
+    >
+      {children}
+    </button>
   )
 }
