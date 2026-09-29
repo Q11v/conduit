@@ -5,11 +5,53 @@ import type { JobSnapshot, JobTarget } from '../types'
 
 const CANCELLED = '已取消'
 
-const note = (t: JobTarget) => {
+const tilde = (p: string) => p.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~')
+
+// 所有路径共同的父目录（带结尾 /），没有则返回 ''
+function commonDir(paths: string[]) {
+  const split = paths.map(p => p.replace(/\/+$/, '').split('/').slice(0, -1))
+  const first = split[0] ?? []
+  let n = first.length
+  for (const parts of split) {
+    let i = 0
+    while (i < n && parts[i] === first[i]) i++
+    n = i
+  }
+  return n > 0 ? first.slice(0, n).join('/') + '/' : ''
+}
+
+const note = (t: JobTarget, expectedLocal?: string) => {
   if (t.status === 'running') return [t.speed, t.eta && `剩 ${t.eta}`].filter(Boolean).join(' · ')
-  if (t.status === 'done' && t.localPath) return `→ ${t.localPath}`
+  if (t.status === 'pending') return '等待中'
+  if (t.status === 'done' && t.localPath && t.localPath !== expectedLocal) return `→ ${tilde(t.localPath)}`
   if (t.status === 'done' && t.remoteDir && t.remoteDir !== t.dir) return `→ ${t.remoteDir}`
   return ''
+}
+
+function StatusDot({ t }: { t: JobTarget }) {
+  if (t.status === 'done' || t.status === 'error') {
+    const done = t.status === 'done'
+    return (
+      <svg
+        width={11}
+        height={11}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={3}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={done ? 'text-ok-text' : 'text-err-text'}
+      >
+        <path d={done ? 'M20 6 9 17l-5-5' : 'M18 6 6 18M6 6l12 12'} />
+      </svg>
+    )
+  }
+  return (
+    <span
+      className={`w-1.5 h-1.5 rounded-full ${t.status === 'running' ? 'bg-violet-text animate-cdt-pulse' : 'bg-[rgba(255,255,255,.2)]'}`}
+    />
+  )
 }
 
 interface Props {
@@ -48,6 +90,14 @@ export function PushProgress({ job, onDismiss, onCancel, onRetry, onReveal }: Pr
         .join(' · ')
 
   const rows = !job.done ? job.targets : clean ? job.targets : failed
+
+  // 拉取任务：同一台服务器、同一个本地目录，公共部分只在顶部显示一次
+  const labels = new Set(job.targets.map(t => t.label))
+  const oneHost = pulling && labels.size === 1
+  const base = pulling ? commonDir(job.targets.map(t => t.dir)) : ''
+  const nameOf = (t: JobTarget) => (base && t.dir.startsWith(base) ? t.dir.slice(base.length) : t.dir)
+  const localOf = (t: JobTarget) =>
+    job.localDir && `${job.localDir.replace(/\/+$/, '')}/${t.dir.replace(/\/+$/, '').split('/').pop()}`
 
   return (
     <div className="fixed left-0 right-0 bottom-0 z-16 pointer-events-none">
@@ -103,47 +153,84 @@ export function PushProgress({ job, onDismiss, onCancel, onRetry, onReveal }: Pr
           </div>
 
           {showRows && rows.length > 0 && (
-            <div className="px-4 pb-3 border-t hair pt-2">
-              {rows.map(t => {
-                const pct = t.status === 'done' ? 100 : (t.percent ?? 0)
-                const foot = note(t)
-                return (
-                  <div key={t.key} className="py-1.5">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <span className="shrink-0 text-[13px] whitespace-nowrap">{t.label}</span>
-                      {t.dir && t.label !== t.spec && (
-                        <span className="shrink-0 px-1.5 py-px rounded bg-[rgba(255,255,255,.07)] font-mono text-[12px] text-mute-2">
-                          {t.dir}
-                        </span>
-                      )}
+            <div className="border-t hair">
+              {pulling && (oneHost || base || job.localDir) && (
+                <div className="flex items-center gap-2 min-w-0 px-4 pt-2.5 pb-1 font-mono text-[12px] text-mute-3">
+                  <span className="min-w-0 truncate" title={`${oneHost ? [...labels][0] + ':' : ''}${base}`}>
+                    {oneHost && <span className="font-sans text-fg-dim">{[...labels][0]}</span>}
+                    {oneHost && base && <span className="text-mute-4">:</span>}
+                    {base}
+                  </span>
+                  {job.localDir && (
+                    <>
+                      <span className="shrink-0 text-mute-4">→</span>
+                      <span className="min-w-0 truncate text-fg-dim" title={job.localDir}>
+                        {tilde(job.localDir)}
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
 
-                      {!job.done && (
-                        <div
-                          className="flex-1 min-w-[80px] h-1 rounded-full overflow-hidden"
-                          style={{ background: 'rgba(255,255,255,.1)' }}
+              <div className="max-h-[42vh] overflow-auto px-4 pt-1 pb-2.5">
+                {rows.map(t => {
+                  const pct = t.status === 'done' ? 100 : (t.percent ?? 0)
+                  const foot = note(t, pulling ? localOf(t) : undefined)
+                  const name = pulling ? nameOf(t) : t.label
+                  const showBar = !job.done && t.status !== 'done' && t.status !== 'error'
+                  return (
+                    <div key={t.key} className="py-1">
+                      <div className="grid grid-cols-[14px_minmax(0,1fr)_minmax(80px,32%)_auto] items-center gap-x-3 min-h-6">
+                        <span className="flex items-center justify-center">
+                          <StatusDot t={t} />
+                        </span>
+
+                        <span className="flex items-center gap-2 min-w-0">
+                          {pulling && !oneHost && <span className="shrink-0 text-[12.5px] text-fg-dim">{t.label}</span>}
+                          {!pulling && <span className="shrink-0 text-[13px] whitespace-nowrap">{t.label}</span>}
+                          <span
+                            className={`min-w-0 truncate font-mono text-[12px] ${pulling ? 'text-fg' : 'px-1.5 py-px rounded bg-[rgba(255,255,255,.07)] text-mute-2'}`}
+                            title={t.dir}
+                          >
+                            {pulling ? name : t.label !== t.spec ? t.dir : ''}
+                          </span>
+                        </span>
+
+                        {showBar ? (
+                          <div className="h-1 rounded-full overflow-hidden bg-[rgba(255,255,255,.1)]">
+                            <div
+                              className="h-full rounded-full transition-[width] duration-200"
+                              style={{
+                                width: `${pct}%`,
+                                background: 'linear-gradient(90deg,var(--color-violet-hi),var(--color-cyan))'
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          <span />
+                        )}
+
+                        <span
+                          className="min-w-0 max-w-[22rem] truncate text-right font-mono text-[11.5px] text-mute-3 tabular-nums"
+                          title={foot}
                         >
-                          <div
-                            className="h-full rounded-full transition-[width] duration-200"
-                            style={{
-                              width: `${pct}%`,
-                              background: 'linear-gradient(90deg,var(--color-violet-hi),var(--color-cyan))'
-                            }}
-                          />
+                          {showBar && t.status === 'running' && t.percent != null && (
+                            <span className="text-fg-dim">{Math.round(t.percent)}%</span>
+                          )}
+                          {showBar && t.status === 'running' && t.percent != null && foot && ' · '}
+                          {foot}
+                        </span>
+                      </div>
+
+                      {t.error && (
+                        <div className="mt-0.5 pl-[26px] text-[12px] leading-snug text-err-text break-words">
+                          {t.error}
                         </div>
                       )}
-                      {job.done && <span className="flex-1" />}
-
-                      {foot && (
-                        <span className="shrink-0 font-mono text-[12px] text-mute-3 whitespace-nowrap">{foot}</span>
-                      )}
                     </div>
-
-                    {t.error && (
-                      <div className="mt-1 text-[12px] leading-snug text-err-text break-words">{t.error}</div>
-                    )}
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
           )}
         </div>

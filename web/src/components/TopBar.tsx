@@ -1,4 +1,4 @@
-import { List, Logo } from './Icons'
+import { History, Logo } from './Icons'
 import type { View } from '../useConduit'
 
 interface Props {
@@ -62,7 +62,7 @@ export function TopBar({ view, onView }: Props) {
                 : 'panel hair text-mute hover:bg-[rgba(255,255,255,.08)] hover:text-fg-dim'
             }`}
           >
-            <List size={14} />
+            <History size={14} />
           </button>
         </div>
       </div>

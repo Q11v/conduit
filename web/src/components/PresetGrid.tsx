@@ -1,4 +1,6 @@
-import { Doc, Trash } from './Icons'
+import { useEffect, useRef, useState } from 'react'
+import { Doc, Files, Folder, Trash } from './Icons'
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import { Btn, IconBtn, SectionHeader } from './ui'
 import { formatLastRun } from '../api'
 import type { Preset, PullPreset, PushPreset, Server } from '../types'
@@ -38,7 +40,7 @@ function describePush(p: PushPreset, servers: Server[]): Summary {
     broken: missing > 0 ? `${missing} 个已失效` : null,
     rows: [
       ['来源', p.src || none('每次推送前选择')],
-      ['目标', targets.length ? targets.join('、') : none('无')]
+      ['目标', targets.length ? <ItemList items={targets} /> : none('无')]
     ]
   }
 }
@@ -51,10 +53,115 @@ function describePull(p: PullPreset, servers: Server[]): Summary {
     broken: s ? null : '服务器已删除',
     source: s ? (s.name === s.host || s.name === addr ? addr : `${s.name} · ${addr}`) : undefined,
     rows: [
-      ['路径', p.paths.join('、')],
+      ['路径', <ItemList items={p.paths} byDir />],
       ['本地', p.localDir]
     ]
   }
+}
+
+// 超过这个数量折叠成一行，完整列表放进悬浮层
+const COLLAPSE_AT = 3
+
+// 按父目录分组：/a/b/c.log → ['/a/b/', 'c.log']
+function groupByDir(paths: string[]): [string, string[]][] {
+  const groups = new Map<string, string[]>()
+  for (const p of paths) {
+    const trimmed = p.replace(/\/+$/, '')
+    const i = trimmed.lastIndexOf('/')
+    const dir = i >= 0 ? trimmed.slice(0, i + 1) : ''
+    const name = trimmed.slice(i + 1) || p
+    groups.set(dir, [...(groups.get(dir) ?? []), name])
+  }
+  return [...groups]
+}
+
+// 悬停打开、移开延迟关闭；点击后固定，点外面或 Esc 才关
+function useHoverPopover() {
+  const [open, setOpen] = useState(false)
+  const pinned = useRef(false)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const schedule = (next: boolean, ms: number) => {
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setOpen(next), ms)
+  }
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const hover = {
+    onMouseEnter: () => schedule(true, 120),
+    onMouseLeave: () => !pinned.current && schedule(false, 180)
+  }
+  return {
+    open,
+    hover,
+    onOpenChange: (next: boolean) => {
+      clearTimeout(timer.current)
+      pinned.current = next
+      setOpen(next)
+    }
+  }
+}
+
+function ItemList({ items, byDir }: { items: string[]; byDir?: boolean }) {
+  const { open, hover, onOpenChange } = useHoverPopover()
+  if (items.length <= COLLAPSE_AT) return <span className="break-all">{items.join('、')}</span>
+
+  const groups = byDir ? groupByDir(items) : [['', items] as [string, string[]]]
+
+  return (
+    <div className="flex items-baseline gap-2 min-w-0">
+      <span className="flex-1 min-w-0 truncate">
+        {groups.map(([dir, names], i) => (
+          <span key={dir}>
+            {i > 0 && <span className="text-mute-4">{'  ·  '}</span>}
+            {dir && <span className="text-mute-4">{dir}</span>}
+            {names.join(byDir ? ', ' : '、')}
+          </span>
+        ))}
+      </span>
+      <Popover open={open} onOpenChange={onOpenChange}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            {...hover}
+            className={`inline-flex shrink-0 items-center gap-1 px-2 py-px rounded-md font-sans text-[12px] cursor-pointer transition-colors duration-150 ${
+              open ? 'bg-[rgba(124,124,245,.18)] text-white' : 'text-violet-text hover:bg-[rgba(124,124,245,.14)]'
+            }`}
+          >
+            <Files size={12} />
+            {items.length} 项
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          {...hover}
+          align="end"
+          onOpenAutoFocus={e => e.preventDefault()}
+          className="w-[min(40rem,calc(100vw-32px))] p-0"
+        >
+          <div className="flex flex-col gap-3 max-h-[min(24rem,60vh)] overflow-auto p-3.5 font-mono text-[12px] leading-relaxed">
+            {groups.map(([dir, names]) => (
+              <div key={dir} className="flex flex-col gap-1 min-w-0">
+                {dir && (
+                  <div className="flex items-center gap-1.5 text-mute-3 break-all">
+                    <Folder size={12} className="shrink-0" />
+                    {dir}
+                    <span className="text-mute-4 font-sans">· {names.length} 项</span>
+                  </div>
+                )}
+                <ul
+                  className={`m-0 p-0 list-none grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-x-4 gap-y-0.5 ${dir ? 'pl-[18px]' : ''}`}
+                >
+                  {names.map(n => (
+                    <li key={n} className="truncate text-fg-dim" title={dir + n}>
+                      {n}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
 }
 
 const COPY = {
@@ -87,7 +194,7 @@ const COPY = {
 const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <div className="flex items-baseline gap-2.5">
     <span className="shrink-0 w-7 text-[12px] text-mute-4">{label}</span>
-    <span className="flex-1 min-w-0 font-mono text-[12px] leading-relaxed text-fg-dim break-all">{children}</span>
+    <div className="flex-1 min-w-0 font-mono text-[12px] leading-relaxed text-fg-dim">{children}</div>
   </div>
 )
 

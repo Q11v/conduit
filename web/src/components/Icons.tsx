@@ -163,3 +163,17 @@ export const More = ({ size = 15, className }: Props) => (
     <circle cx="19" cy="12" r="1.8" />
   </svg>
 )
+
+export const History = ({ size = 14 }: Props) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...stroke()}>
+    <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+    <path d="M3 3v5h5M12 7v5l3 2" />
+  </svg>
+)
+
+export const Files = ({ size = 13 }: Props) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...stroke()}>
+    <path d="M15 2H9a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7Z" />
+    <path d="M15 2v5h5M3 8v12a2 2 0 0 0 2 2h9" />
+  </svg>
+)
