@@ -2,9 +2,9 @@ import { useRef, useState, type KeyboardEvent } from 'react'
 import { Chevron, Plus } from './Icons'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Chip, ProbeBadge } from './ui'
+import { Chip, InlineAdd, ProbeBadge } from './ui'
 import type { Probe, Server } from '../types'
-import { targetKey } from '../types'
+import { splitKey, targetKey } from '../types'
 
 const TABBABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]'
@@ -20,6 +20,7 @@ interface Props {
   adhoc: string
   onToggle: (serverId: string, dir: string) => void
   onToggleTag: (tag: string) => void
+  onAddPath: (serverId: string, dir: string) => string | null
   onAdhoc: (v: string) => void
   onGoServers: () => void
   empty: boolean
@@ -118,8 +119,15 @@ export function TargetPicker(p: Props) {
                 <span className="flex-1" />
                 <ProbeBadge probe={p.probeOf(s.id)} />
               </div>
-              {s.dirs.map(dir => {
+              {[
+                ...s.dirs,
+                ...[...p.sel]
+                  .map(splitKey)
+                  .filter(k => k.serverId === s.id && !s.dirs.includes(k.dir))
+                  .map(k => k.dir)
+              ].map(dir => {
                 const checked = p.sel.has(targetKey(s.id, dir))
+                const custom = !s.dirs.includes(dir)
                 return (
                   <label
                     key={dir}
@@ -129,9 +137,13 @@ export function TargetPicker(p: Props) {
                   >
                     <Checkbox checked={checked} onCheckedChange={() => p.onToggle(s.id, dir)} />
                     <span className="flex-1 min-w-0 font-mono text-[12px] text-fg-dim break-all">{dir}</span>
+                    {custom && <span className="shrink-0 text-[12px] text-cyan">临时</span>}
                   </label>
                 )
               })}
+              <div className="ml-1.5 px-2 pt-1">
+                <InlineAdd label="其他路径" placeholder="/opt/app，回车添加" onAdd={v => p.onAddPath(s.id, v)} />
+              </div>
             </div>
           ))}
 
@@ -164,7 +176,7 @@ export function TargetPicker(p: Props) {
 
         <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-t hair bg-[rgba(255,255,255,.02)]">
           <span className="flex-1 text-[12px] text-mute-4">
-            已选 {p.sel.size} / {p.totalTargets}
+            已选 {p.sel.size} 个目标
           </span>
           <button
             onClick={() => {

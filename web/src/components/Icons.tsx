@@ -177,3 +177,9 @@ export const Files = ({ size = 13 }: Props) => (
     <path d="M15 2v5h5M3 8v12a2 2 0 0 0 2 2h9" />
   </svg>
 )
+
+export const Star = ({ size = 12, className }: Props) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" className={className} {...stroke(2)}>
+    <path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9Z" />
+  </svg>
+)

@@ -129,6 +129,9 @@ export function subscribe(jobId: string, onSnapshot: (job: JobSnapshot) => void,
   return () => es.close()
 }
 
+// 拖入/选择的文件会先暂存到 <tmp>/conduit-staging/<uuid>/ 下，浏览器拿不到原路径
+export const stagedName = (path: string) => path.match(/[\\/]conduit-staging[\\/][0-9a-f-]{36}[\\/]([^\\/]+)$/)?.[1] ?? null
+
 export const formatSize = (n: number) => {
   if (!Number.isFinite(n)) return ''
   const units = ['B', 'KB', 'MB', 'GB', 'TB']

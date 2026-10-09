@@ -1,5 +1,5 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
-import { Close } from './Icons'
+import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { Close, Plus } from './Icons'
 import { PROBE } from '../probe'
 import type { Probe } from '../types'
 
@@ -159,9 +159,13 @@ export function Chip({
   removeTitle = '移除',
   title,
   dot,
+  dashed,
+  actions,
   children
 }: {
   dot?: string
+  dashed?: boolean
+  actions?: ReactNode
   active?: boolean
   size?: 'sm' | 'md'
   onClick?: () => void
@@ -186,9 +190,14 @@ export function Chip({
     return (
       <span
         title={title}
-        className={`flex min-w-0 max-w-full shrink-0 items-center gap-1 pr-0.5 border font-mono text-[12px] ${box} ${CHIP_TONE.off} text-fg-dim`}
+        className={`flex min-w-0 max-w-full shrink-0 items-center gap-1 pr-0.5 border font-mono text-[12px] ${box} ${
+          dashed
+            ? 'border-dashed border-[rgba(106,213,230,.45)] bg-[rgba(106,213,230,.06)] text-fg-dim'
+            : `${CHIP_TONE.off} text-fg-dim`
+        }`}
       >
         <span className="min-w-0 truncate">{children}</span>
+        {actions}
         <IconBtn onClick={onRemove} className="w-[18px] h-[18px] rounded" title={removeTitle}>
           <Close size={10} />
         </IconBtn>
@@ -247,5 +256,73 @@ export function PrimaryAction({
     >
       {children}
     </button>
+  )
+}
+
+export function InlineAdd({
+  label,
+  placeholder,
+  onAdd
+}: {
+  label: string
+  placeholder?: string
+  onAdd: (value: string) => string | null
+}) {
+  const [open, setOpen] = useState(false)
+  const [value, setValue] = useState('')
+  const [err, setErr] = useState<string | null>(null)
+  const close = () => {
+    setOpen(false)
+    setValue('')
+    setErr(null)
+  }
+  const commit = () => {
+    if (!value.trim()) return close()
+    const e = onAdd(value)
+    if (e) setErr(e)
+    else close()
+  }
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex shrink-0 items-center gap-1 h-6 px-2 border border-dashed border-[rgba(255,255,255,.16)] rounded-md bg-transparent text-[12px] text-mute-3 cursor-pointer transition-colors duration-150 hover:border-[rgba(124,124,245,.6)] hover:text-violet-text"
+      >
+        <Plus size={11} />
+        {label}
+      </button>
+    )
+  }
+  return (
+    <span className="flex shrink-0 items-center gap-1.5">
+      <input
+        autoFocus
+        value={value}
+        onChange={e => {
+          setValue(e.target.value)
+          setErr(null)
+        }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            commit()
+          }
+          if (e.key === 'Escape') {
+            e.stopPropagation()
+            close()
+          }
+        }}
+        onBlur={commit}
+        spellCheck={false}
+        placeholder={placeholder}
+        title={err ?? undefined}
+        aria-invalid={!!err}
+        className={`h-6 w-48 px-2 rounded-md border sunken font-mono text-[12px] text-fg outline-0 placeholder:text-mute-4 ${
+          err ? 'border-[rgba(226,86,86,.7)]' : 'field-edge focus:border-[rgba(124,124,245,.7)]'
+        }`}
+      />
+      {err && <span className="text-[12px] text-err-text whitespace-nowrap">{err}</span>}
+    </span>
   )
 }

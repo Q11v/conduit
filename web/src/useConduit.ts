@@ -136,6 +136,15 @@ export function useConduit() {
     setAppliedPreset(null)
   }, [])
 
+  const addPath = useCallback((serverId: string, raw: string): string | null => {
+    const dir = raw.trim().replace(/(.)\/+$/, '$1')
+    if (!dir) return '路径不能为空'
+    if (!dir.startsWith('/') && !dir.startsWith('~')) return '用绝对路径或 ~ 开头'
+    setSel(prev => new Set(prev).add(targetKey(serverId, dir)))
+    setAppliedPreset(null)
+    return null
+  }, [])
+
   const toggleByKey = useCallback(
     (key: string) => {
       const { serverId, dir } = splitKey(key)
@@ -170,7 +179,7 @@ export function useConduit() {
     for (const key of sel) {
       const { serverId, dir } = splitKey(key)
       const server = servers.find(s => s.id === serverId)
-      if (server && server.dirs.includes(dir)) out.push({ key, server, dir })
+      if (server && dir) out.push({ key, server, dir })
     }
     return out
   }, [sel, servers])
@@ -271,6 +280,26 @@ export function useConduit() {
       })
     }
   }, [draft, form, closeForm, reloadServers])
+
+  const pinPath = useCallback(
+    async (serverId: string, dir: string) => {
+      const s = servers.find(x => x.id === serverId)
+      if (!s || s.dirs.includes(dir)) return
+      const r = await api.saveServer(s.id, {
+        name: s.name && s.name !== s.host ? s.name : '',
+        tags: [...(s.tags ?? [])],
+        host: s.host,
+        port: s.port ? String(s.port) : '',
+        dirs: [...s.dirs, dir],
+        auth: s.auth,
+        password: ''
+      })
+      if (!r.ok) return setStatus({ text: why(r), bad: true })
+      await reloadServers()
+      setStatus({ text: `已把 ${dir} 存为 ${s.name} 的常用目录`, bad: false })
+    },
+    [servers, reloadServers]
+  )
 
   const remove = useCallback(
     async (id: string) => {
@@ -390,7 +419,7 @@ export function useConduit() {
         const s = servers.find(x => x.id === t.serverId)
         if (!s) continue
         const dir = t.dir ?? s.dirs[0]
-        if (dir && s.dirs.includes(dir)) live.push({ serverId: s.id, dir })
+        if (dir) live.push({ serverId: s.id, dir })
       }
       const missing = p.targets.length - live.length
       setSel(new Set(live.map(t => targetKey(t.serverId, t.dir))))
@@ -400,9 +429,7 @@ export function useConduit() {
       setStaging(null)
       setAppliedPreset(p.id)
       setView('push')
-      setStatus(
-        missing > 0 ? { text: `方案里有 ${missing} 个目标已失效（服务器或目录被删），已跳过`, bad: true } : null
-      )
+      setStatus(missing > 0 ? { text: `方案里有 ${missing} 个目标已失效（服务器被删），已跳过`, bad: true } : null)
       if (!run) return
       if (!p.src.trim()) {
         return setStatus({ text: '这个方案每次都要重新选来源', bad: true })
@@ -577,6 +604,8 @@ export function useConduit() {
     toggle,
     toggleByKey,
     toggleTag,
+    addPath,
+    pinPath,
     totalTargets,
     checks,
     probeOf,

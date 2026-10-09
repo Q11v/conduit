@@ -41,8 +41,9 @@ async function resolveTargets(raw) {
     } else {
       const s = servers.find(x => x.id === item.serverId)
       if (!s) throw new Error(`服务器不存在: ${item.serverId}`)
-      const dir = item.dir || s.dirs[0]
-      if (!s.dirs.includes(dir)) throw new Error(`${s.name} 没有配置目录 ${dir}`)
+      const dir = String(item.dir || s.dirs[0] || '').trim()
+      if (!dir.startsWith('/') && !dir.startsWith('~'))
+        throw new Error(`${s.name} 的目标目录要用绝对路径或 ~ 开头：${dir}`)
       const conn = await withSecret(s)
       out.push({
         key: `${s.id}|${dir}`,

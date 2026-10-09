@@ -1,9 +1,9 @@
 import { useMemo, useRef, useState } from 'react'
-import { ArrowUp, FileIcon, Upload } from './Icons'
-import { Btn, Chip, CountBadge, PrimaryAction, ProbeBadge, StatusLine, StepLabel } from './ui'
+import { ArrowUp, FileIcon, Star, Upload } from './Icons'
+import { Btn, Chip, CountBadge, IconBtn, InlineAdd, PrimaryAction, ProbeBadge, StatusLine, StepLabel } from './ui'
 import { Checkbox } from '@/components/ui/checkbox'
 import { TargetPicker } from './TargetPicker'
-import { formatSize } from '../api'
+import { formatSize, stagedName } from '../api'
 import type { Probe, SelectedTarget, Server } from '../types'
 import type { Status } from '../useConduit'
 
@@ -26,6 +26,8 @@ interface Props {
   sel: Set<string>
   onToggleDir: (serverId: string, dir: string) => void
   onToggleTag: (tag: string) => void
+  onAddPath: (serverId: string, dir: string) => string | null
+  onPinPath: (serverId: string, dir: string) => void
   adhoc: string
   onAdhoc: (v: string) => void
   onGoServers: () => void
@@ -52,6 +54,8 @@ const Pill = ({ children, tone = 'plain' }: { children: React.ReactNode; tone?: 
 export function PushCard(p: Props) {
   const fileInput = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const staged = stagedName(p.src) != null
   const targetCount = p.selected.length + p.adhocTargets.length
   const live = p.ready && !p.busy
   const fileName = p.src.split('/').filter(Boolean).pop() || ''
@@ -109,7 +113,10 @@ export function PushCard(p: Props) {
                 )}
               </div>
               <input
-                value={p.src}
+                value={staged && !editing ? '临时副本（原路径浏览器拿不到）· 点击查看完整路径' : p.src}
+                title={staged ? p.src : undefined}
+                onFocus={() => setEditing(true)}
+                onBlur={() => setEditing(false)}
                 onChange={e => p.onSrc(e.target.value)}
                 placeholder="/Users/you/dist/app-1.2.0.tar.gz"
                 spellCheck={false}
@@ -159,7 +166,7 @@ export function PushCard(p: Props) {
           <StepLabel
             step="02"
             title="目标服务器"
-            count={<CountBadge n={targetCount} total={p.totalTargets} />}
+            count={<CountBadge n={targetCount} />}
             hint={p.adhocTargets.length > 0 ? `含 ${p.adhocTargets.length} 个临时目标` : undefined}
           />
 
@@ -174,11 +181,32 @@ export function PushCard(p: Props) {
                   <ProbeBadge probe={p.probeOf(server.id)} />
                 </span>
                 <div className="flex min-w-0 flex-wrap gap-1.5">
-                  {items.map(t => (
-                    <Chip key={t.key} onRemove={() => p.onToggle(t.key)} removeTitle="移出本次推送">
-                      {t.dir}
-                    </Chip>
-                  ))}
+                  {items.map(t => {
+                    const custom = !server.dirs.includes(t.dir)
+                    return (
+                      <Chip
+                        key={t.key}
+                        dashed={custom}
+                        title={custom ? '临时路径：只用于这次推送和存下的方案，不改服务器配置' : undefined}
+                        onRemove={() => p.onToggle(t.key)}
+                        removeTitle="移出本次推送"
+                        actions={
+                          custom && (
+                            <IconBtn
+                              onClick={() => p.onPinPath(server.id, t.dir)}
+                              className="w-[18px] h-[18px] rounded hover:text-warn-text"
+                              title={`存为 ${server.name} 的常用目录`}
+                            >
+                              <Star size={10} />
+                            </IconBtn>
+                          )
+                        }
+                      >
+                        {t.dir}
+                      </Chip>
+                    )
+                  })}
+                  <InlineAdd label="路径" placeholder="/opt/app，回车添加" onAdd={v => p.onAddPath(server.id, v)} />
                 </div>
               </div>
             ))}
@@ -209,6 +237,7 @@ export function PushCard(p: Props) {
                 adhoc={p.adhoc}
                 onToggle={p.onToggleDir}
                 onToggleTag={p.onToggleTag}
+                onAddPath={p.onAddPath}
                 onAdhoc={p.onAdhoc}
                 onGoServers={p.onGoServers}
                 empty={targetCount === 0}

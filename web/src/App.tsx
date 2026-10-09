@@ -87,6 +87,8 @@ export default function App() {
               sel={c.sel}
               onToggleDir={c.toggle}
               onToggleTag={c.toggleTag}
+              onAddPath={c.addPath}
+              onPinPath={c.pinPath}
               adhoc={c.adhoc}
               onAdhoc={c.setAdhoc}
               onGoServers={() => c.setView('servers')}
