@@ -321,8 +321,17 @@ export function useConduit() {
   )
 
   const pickFile = useCallback(async (file: File) => {
-    setStaging({ name: file.name, pct: 0 })
     setStatus(null)
+    const desktop = window.conduitDesktop
+    const path = desktop?.pathForFile(file)
+    if (desktop && path) {
+      const info = await desktop.stat(path)
+      setSrc(path)
+      setSize(info && !info.dir ? info.size : null)
+      setStaging(null)
+      return
+    }
+    setStaging({ name: file.name, pct: 0 })
     try {
       const r = await api.upload(file, pct => setStaging({ name: file.name, pct }))
       setSrc(r.source)

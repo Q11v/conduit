@@ -30,11 +30,16 @@ export default [
   },
 
   {
-    files: ['server/**/*.js', '*.{js,ts}'],
+    files: ['server/**/*.js', 'electron/**/*.js', '*.{js,ts}'],
     languageOptions: { globals: globals.node },
     rules: {
       'no-unused-vars': ['error', { ignoreRestSiblings: true }]
     }
+  },
+
+  {
+    files: ['electron/**/*.cjs'],
+    languageOptions: { sourceType: 'commonjs', globals: globals.node }
   },
 
   {

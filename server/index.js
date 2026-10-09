@@ -1,7 +1,7 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import { createWriteStream } from 'node:fs'
+import { createWriteStream, realpathSync } from 'node:fs'
 import { mkdir, readFile, stat } from 'node:fs/promises'
 import { pipeline } from 'node:stream/promises'
 import { Readable } from 'node:stream'
@@ -464,8 +464,25 @@ app.get('/api/jobs/:id/events', c => {
   })
 })
 
-serve({ fetch: app.fetch, port: PORT, hostname: '127.0.0.1' }, () => {
-  console.log(`conduit → http://127.0.0.1:${PORT}  (仅监听本机)`)
-  console.log(`服务器配置：${CONFIG_PATH}`)
-  if (!keychainAvailable) console.log('提示：非 macOS，密码认证不可用，请用 SSH 密钥')
-})
+// 返回实际监听的端口；port 传 0 由系统分配
+export function start(port = PORT) {
+  return new Promise((resolve, reject) => {
+    const server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, info => {
+      console.log(`conduit → http://127.0.0.1:${info.port}  (仅监听本机)`)
+      console.log(`服务器配置：${CONFIG_PATH}`)
+      if (!keychainAvailable) console.log('提示：非 macOS，密码认证不可用，请用 SSH 密钥')
+      resolve(info.port)
+    })
+    server.once('error', reject)
+  })
+}
+
+// 被 Electron 主进程 import 时不自动启动
+const isMain = () => {
+  try {
+    return fileURLToPath(import.meta.url) === realpathSync(process.argv[1])
+  } catch {
+    return false
+  }
+}
+if (isMain()) start()

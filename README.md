@@ -8,6 +8,16 @@ npm run dev        # 前端 5173 带热更新，/api 转发到 4321
 npm run serve      # 只启动服务端，不重新构建
 ```
 
+## 桌面端（Electron）
+
+```bash
+npm run desktop    # 构建前端 + 打开桌面窗口
+npm run dist       # 打包成 release/mac-arm64/conduit.app（未签名，自用）
+npm run dist:dmg   # 打包成 dmg
+```
+
+桌面端在主进程里直接跑同一个服务，监听 `127.0.0.1:4322`（`CONDUIT_DESKTOP_PORT` 可改，被占用时退回随机端口），可以和 `npm start` 同时开。区别：拖入/选择的文件直接用真实路径，不再暂存到临时目录，目录也能直接拖；启动时从登录 shell 补回 `PATH` 和 `SSH_AUTH_SOCK`，Homebrew 装的 rsync 能找到。未签名的 App 首次打开要在 Finder 里右键 →「打开」。
+
 ## 功能
 
 **服务器**：主机填 `~/.ssh/config` 里的别名或 `user@1.2.3.4`，可选端口，一台可配多个常用目录，选认证方式。「测」按钮用一次 SSH 验证登录、远端 rsync、每个目录是否存在且可写。
