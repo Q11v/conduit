@@ -62,6 +62,10 @@ function explain(stderr, code, auth) {
       : 'SSH 认证失败 — 试试 ssh-add，或在 ~/.ssh/config 里配 IdentityFile'
   }
   if (/could not resolve|name or service not known|nodename nor servname/i.test(msg)) return '主机名无法解析'
+  const lan = /connect to host (10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|\S+\.local\b)/i.test(msg)
+  if (lan && /no route to host/i.test(msg) && process.platform === 'darwin' && process.versions.electron) {
+    return '访问局域网被系统拦截 — 在「系统设置 → 隐私与安全性 → 本地网络」里打开 conduit，然后重启 App'
+  }
   if (/connection refused|timed out|no route to host/i.test(msg)) return '连不上（端口不通或主机离线）'
   return msg || `退出码 ${code}`
 }

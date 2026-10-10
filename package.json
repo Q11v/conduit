@@ -68,7 +68,11 @@
         "dmg"
       ],
       "category": "public.app-category.developer-tools",
-      "identity": null
+      "identity": "-",
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "conduit 要通过 SSH 连接局域网里的服务器，用于检测、推送和拉取。"
+      },
+      "hardenedRuntime": false
     }
   }
 }

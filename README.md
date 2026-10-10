@@ -9,7 +9,7 @@ npm run dist       # 打包成 release/mac-arm64/conduit.app（未签名，自�
 npm run dist:dmg   # 打包成 dmg
 ```
 
-未签名的 App 首次打开要在 Finder 里右键 →「打开」。从 Finder/Dock 启动时会从登录 shell 补回 `PATH` 和 `SSH_AUTH_SOCK`，Homebrew 装的 rsync 和 1Password 之类的 agent 都能用。
+App 只做了 ad-hoc 签名，首次打开要在 Finder 里右键 →「打开」。第一次连局域网服务器时 macOS 会询问「本地网络」权限，要点允许；如果之前拒绝过，局域网主机会报「访问局域网被系统拦截」，到「系统设置 → 隐私与安全性 → 本地网络」里打开 conduit 再重启 App。从 Finder/Dock 启动时会从登录 shell 补回 `PATH` 和 `SSH_AUTH_SOCK`，Homebrew 装的 rsync 和 1Password 之类的 agent 都能用。
 
 ## 功能
 
