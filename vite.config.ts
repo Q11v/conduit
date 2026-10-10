@@ -9,7 +9,7 @@ export default defineConfig({
   build: { outDir: 'dist', emptyOutDir: true },
   server: {
     proxy: {
-      '/api': { target: 'http://127.0.0.1:4321', changeOrigin: false }
+      '/api': { target: 'http://127.0.0.1:4323', changeOrigin: false }
     }
   }
 })

@@ -25,17 +25,9 @@ export interface SelectedTarget {
 
 export type Probe = 'idle' | 'testing' | 'ok' | 'fail'
 
-export interface DirVerdict {
-  dir: string
-  ok: boolean
-  state?: 'writable' | 'missing' | 'readonly' | 'unknown'
-  reason: string
-}
-
 export interface CheckVerdict {
   ok: boolean
   reason: string
-  dirs: DirVerdict[]
   at: number
 }
 
@@ -76,7 +68,7 @@ export interface HostsInfo {
   home: string
   keychain: boolean
   parallel: number
-  reveal: boolean
+  logFile: string
 }
 
 export interface RemoteEntry {
@@ -107,7 +99,7 @@ export const emptyDraft = (): ServerDraft => ({
   tags: [],
   host: '',
   port: '',
-  dirs: [''],
+  dirs: [],
   auth: 'key',
   password: ''
 })
@@ -149,4 +141,5 @@ export interface ActivityEvent {
   t: string
   level: LogLevel
   msg: string
+  detail?: string
 }

@@ -1,7 +1,9 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
-// 桌面端能拿到拖入/选择文件的真实路径，不用再经过 /api/upload 暂存
-contextBridge.exposeInMainWorld('conduitDesktop', {
+contextBridge.exposeInMainWorld('desktop', {
   pathForFile: file => webUtils.getPathForFile(file) || null,
-  stat: path => ipcRenderer.invoke('conduit:stat', path)
+  stat: path => ipcRenderer.invoke('conduit:stat', path),
+  pick: (opts = {}) => ipcRenderer.invoke('conduit:pick', opts),
+  reveal: paths => ipcRenderer.invoke('conduit:reveal', paths),
+  confirm: (message, detail, action) => ipcRenderer.invoke('conduit:confirm', { message, detail, action })
 })

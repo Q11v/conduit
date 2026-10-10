@@ -73,12 +73,11 @@ export default function App() {
             <PushCard
               src={c.src}
               size={c.size}
-              staging={c.staging}
               onSrc={c.setSrc}
-              onFile={c.pickFile}
+              onPick={c.pickSource}
+              onDrop={c.dropFile}
               selected={c.selected}
               adhocTargets={c.adhocTargets}
-              totalTargets={c.totalTargets}
               probeOf={c.probeOf}
               onToggle={c.toggleByKey}
               onRemoveAdhoc={removeAdhoc}
@@ -89,6 +88,7 @@ export default function App() {
               onToggleTag={c.toggleTag}
               onAddPath={c.addPath}
               onPinPath={c.pinPath}
+              onUnpinPath={c.unpinPath}
               adhoc={c.adhoc}
               onAdhoc={c.setAdhoc}
               onGoServers={() => c.setView('servers')}
@@ -123,6 +123,9 @@ export default function App() {
             onTogglePath={c.togglePullPath}
             localDir={c.pullDir}
             onLocalDir={c.setPullDir}
+            localDirOptions={c.localDirOptions}
+            onPickLocalDir={c.pickPullDir}
+            onPinDir={dir => c.pullServer && c.pinPath(c.pullServer.id, dir, 'pull')}
             status={c.pullStatusText}
             ready={c.pullReady && c.busy === null}
             busy={c.busy === 'pull'}
@@ -150,7 +153,6 @@ export default function App() {
             loaded={c.loaded}
             servers={c.servers}
             tags={c.tags}
-            totalTargets={c.totalTargets}
             checks={c.checks}
             probeOf={c.probeOf}
             configPath={c.hosts?.configPath ?? ''}
@@ -164,7 +166,12 @@ export default function App() {
         )}
 
         {c.view === 'log' && (
-          <ActivityView events={c.activity} failedOnly={c.failedOnly} onFailedOnly={c.setFailedOnly} />
+          <ActivityView
+            events={c.activity}
+            failedOnly={c.failedOnly}
+            onFailedOnly={c.setFailedOnly}
+            logFile={c.hosts?.logFile ?? ''}
+          />
         )}
       </div>
 
@@ -176,7 +183,7 @@ export default function App() {
           onDismiss={c.dismissJob}
           onCancel={c.cancelJob}
           onRetry={c.retry}
-          onReveal={c.job.kind === 'pull' && c.hosts?.reveal ? c.revealJob : undefined}
+          onReveal={c.job.kind === 'pull' ? c.revealJob : undefined}
         />
       )}
 

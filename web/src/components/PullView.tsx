@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowUp, Chevron, Close, FileIcon, Folder } from './Icons'
+import { ArrowDown, ArrowUp, Chevron, Close, FileIcon, Folder, Star } from './Icons'
 import { Btn, Chip, CountBadge, IconBtn, PrimaryAction, ProbeBadge, StatusLine, StepLabel } from './ui'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Combobox } from '@/components/ui/combobox'
 import { Hero } from './Hero'
 import * as api from '../api'
 import { formatSize, why } from '../api'
@@ -18,6 +19,9 @@ interface Props {
   onTogglePath: (path: string) => void
   localDir: string
   onLocalDir: (v: string) => void
+  localDirOptions: string[]
+  onPickLocalDir: () => void
+  onPinDir: (dir: string) => void
   status: Status
   ready: boolean
   busy: boolean
@@ -31,7 +35,6 @@ interface Props {
 const joinPath = (dir: string, name: string) => (dir === '/' ? `/${name}` : `${dir}/${name}`)
 const parentOf = (dir: string) => dir.replace(/\/[^/]+\/?$/, '') || '/'
 const baseOf = (path: string) => path.replace(/\/+$/, '').split('/').pop() || '/'
-const LOCAL_DIRS = ['Downloads', 'Desktop']
 
 function useBrowser(server: Server | null) {
   const [input, setInput] = useState('')
@@ -173,18 +176,20 @@ export function PullView(p: Props) {
         <div className="flex-1 min-w-[16rem]">
           <StepLabel step="02" title="本地目录" />
           <span className="flex items-center gap-2">
-            <input
-              value={p.localDir}
-              onChange={e => p.onLocalDir(e.target.value)}
-              spellCheck={false}
-              placeholder="~/Downloads"
-              className="flex-1 min-w-0 h-9 px-[11px] rounded-[9px] border field-edge sunken font-mono text-[13px] text-fg outline-0 focus:border-[rgba(124,124,245,.7)]"
-            />
-            {LOCAL_DIRS.map(d => (
-              <Chip key={d} size="md" active={dest === `~/${d}`} onClick={() => p.onLocalDir(`~/${d}`)}>
-                {d}
-              </Chip>
-            ))}
+            <div className="flex-1 min-w-0">
+              <Combobox
+                value={p.localDir}
+                onValueChange={p.onLocalDir}
+                options={p.localDirOptions}
+                spellCheck={false}
+                placeholder="~/Downloads"
+                aria-label="本地目录"
+                className="font-mono"
+              />
+            </div>
+            <Btn onClick={p.onPickLocalDir} className="shrink-0 h-9 px-3 text-[13px] rounded-[9px]">
+              选择…
+            </Btn>
           </span>
         </div>
       </section>
@@ -254,6 +259,17 @@ export function PullView(p: Props) {
                 {d}
               </Chip>
             ))}
+            {cwd && !p.server.dirs.includes(cwd) && (
+              <button
+                type="button"
+                onClick={() => p.onPinDir(cwd)}
+                title={`把 ${cwd} 存为 ${p.server.name} 的常用目录`}
+                className="flex shrink-0 items-center gap-1 h-6 px-2 border border-dashed border-[rgba(255,255,255,.16)] rounded-md bg-transparent text-[12px] text-mute-3 cursor-pointer transition-colors duration-150 hover:border-[rgba(240,190,90,.6)] hover:text-warn-text"
+              >
+                <Star size={11} />
+                存为常用
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2.5 px-4 h-9 border-b hair text-[12px] text-mute-3">

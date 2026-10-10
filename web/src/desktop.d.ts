@@ -1,7 +1,9 @@
-// Electron preload 注入（electron/preload.cjs），浏览器里不存在
 interface Window {
-  conduitDesktop?: {
+  desktop: {
     pathForFile(file: File): string | null
     stat(path: string): Promise<{ size: number; dir: boolean } | null>
+    pick(opts?: { dir?: boolean; defaultPath?: string }): Promise<string | null>
+    reveal(paths: string[]): Promise<void>
+    confirm(message: string, detail?: string, action?: string): Promise<boolean>
   }
 }

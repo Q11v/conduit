@@ -1,13 +1,9 @@
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { streamSSE } from 'hono/streaming'
-import { createWriteStream, realpathSync } from 'node:fs'
-import { mkdir, readFile, stat } from 'node:fs/promises'
-import { pipeline } from 'node:stream/promises'
-import { Readable } from 'node:stream'
+import { readFile, stat } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { spawn } from 'node:child_process'
-import { homedir, tmpdir } from 'node:os'
+import { homedir } from 'node:os'
 import { basename, extname, join, dirname, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseTarget, sshConfigHosts, cleanPullPaths, checkLocalDir } from './targets.js'
@@ -15,17 +11,13 @@ import { pushOne, pullOne, checkTarget, browseRemote } from './transfer.js'
 import { loadServers, addServer, updateServer, removeServer, withSecret, CONFIG_PATH } from './servers.js'
 import { keychainAvailable } from './secrets.js'
 import { loadPresets, addPreset, removePreset, touchPreset, PRESETS_PATH } from './presets.js'
-import { log, fail, event, recentEvents } from './log.js'
+import { log, fail, event, recentEvents, LOG_FILE } from './log.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const DIST = join(ROOT, 'web', 'dist')
-const STAGING = join(tmpdir(), 'conduit-staging')
-const PORT = Number(process.env.PORT || 4321)
 const MAX_PARALLEL = Math.max(1, Math.min(16, Number(process.env.CONDUIT_PARALLEL) || 4))
 
 const jobs = new Map()
-
-const OPENER = { darwin: 'open', linux: 'xdg-open' }[process.platform]
 
 const expandHome = p => (p === '~' ? homedir() : p.startsWith('~/') ? join(homedir(), p.slice(2)) : p)
 
@@ -90,7 +82,7 @@ function publish(job) {
 }
 
 function startTask(job, t, onProgress) {
-  const conn = { host: t.host, auth: t.auth, port: t.port, password: t.password, onProgress }
+  const conn = { host: t.host, auth: t.auth, port: t.port, password: t.password, trace: t.trace, onProgress }
   return job.kind === 'pull'
     ? pullOne({ ...conn, remotePath: t.dir, localDir: job.localDir })
     : pushOne({ ...conn, source: job.source, dir: t.dir, verify: job.verify })
@@ -111,6 +103,7 @@ async function runJob(job, keys) {
       t.status = 'running'
       t.percent = 0
       t.error = null
+      t.trace = []
       publish(job)
       const started = Date.now()
       try {
@@ -129,12 +122,13 @@ async function runJob(job, keys) {
           'OK',
           job.kind === 'pull'
             ? `${t.label} ${t.dir} 拉取完成，${secs}s → ${localPath}`
-            : `${t.label} ${t.dir} 完成，${secs}s → ${remoteDir}`
+            : `${t.label} ${t.dir} 完成，${secs}s → ${remoteDir}`,
+          t.trace
         )
       } catch (err) {
         t.status = 'error'
         t.error = err.message
-        event('FAIL', `${t.label} ${t.dir} ${err.message}`)
+        event(err.message === '已取消' ? 'WARN' : 'FAIL', `${t.label} ${t.dir} ${err.message}`, t.trace)
       } finally {
         job.running.delete(key)
         publish(job)
@@ -149,7 +143,7 @@ const app = new Hono()
 app.use('*', async (c, next) => {
   const started = Date.now()
   await next()
-  if (c.req.path.startsWith('/api')) {
+  if (c.req.path.startsWith('/api') && !(c.req.path === '/api/activity' && c.res.ok)) {
     log('http', `${c.req.method} ${c.req.path} → ${c.res.status} ${Date.now() - started}ms`)
   }
 })
@@ -159,7 +153,7 @@ app.notFound(c => {
   return c.json(
     {
       error: `接口不存在：${c.req.method} ${c.req.path}`,
-      hint: '服务端可能是旧版本进程，改完代码需要重启 npm start'
+      hint: '服务端可能是旧版本进程，改完服务端代码需要重启 App'
     },
     404
   )
@@ -215,8 +209,8 @@ app.get('/api/hosts', c =>
     presetsPath: PRESETS_PATH,
     home: homedir(),
     keychain: keychainAvailable,
-    parallel: MAX_PARALLEL,
-    reveal: !!OPENER
+    logFile: LOG_FILE,
+    parallel: MAX_PARALLEL
   })
 )
 
@@ -277,13 +271,12 @@ app.post('/api/check', async c => {
       if (!s) return c.json({ ok: false, reason: '服务器不存在' }, 404)
       conn = await withSecret(s)
     } else {
-      const dirs = Array.isArray(body.dirs) ? body.dirs.filter(Boolean) : body.dir ? [body.dir] : []
-      if (!body.host || dirs.length === 0) return c.json({ ok: false, reason: '缺少主机或目录' }, 400)
-      body.dirs = dirs
+      if (!body.host) return c.json({ ok: false, reason: '缺少主机' }, 400)
       conn = body
     }
+    conn = { ...conn, trace: [] }
     const verdict = await checkTarget(conn)
-    event(verdict.ok ? 'TEST' : 'FAIL', `${conn.host} ${verdict.reason}`)
+    event(verdict.ok ? 'TEST' : 'FAIL', `${conn.host} ${verdict.reason}`, conn.trace)
     return c.json(verdict)
   } catch (err) {
     return c.json({ ok: false, reason: err.message })
@@ -303,17 +296,6 @@ app.post('/api/browse', async c => {
   } catch (err) {
     return c.json({ ok: false, reason: err.message })
   }
-})
-
-app.post('/api/upload', async c => {
-  const name = basename(c.req.header('x-filename') || 'upload.bin')
-  const dir = join(STAGING, randomUUID())
-  await mkdir(dir, { recursive: true })
-  const dest = join(dir, name)
-  if (!c.req.raw.body) return c.json({ error: '请求没有 body' }, 400)
-  await pipeline(Readable.fromWeb(c.req.raw.body), createWriteStream(dest))
-  const { size } = await stat(dest)
-  return c.json({ source: dest, name, size })
 })
 
 app.post('/api/jobs', async c => {
@@ -350,7 +332,11 @@ app.post('/api/jobs', async c => {
     cancelled: false
   }
   jobs.set(job.id, job)
-  event('PUT', `${job.sourceName} (${humanSize(size)}) → ${resolved.length} 台`)
+  event('PUT', `${job.sourceName} (${humanSize(size)}) → ${resolved.length} 台`, [
+    `来源 ${source}`,
+    ...resolved.map(t => `目标 ${t.label} ${t.spec}`),
+    ...(job.verify ? ['推送后校验大小'] : [])
+  ])
   if (presetId) touchPreset(presetId).catch(err => fail('presets', err.message))
   runJob(job, [...job.targets.keys()])
   return c.json({ id: job.id })
@@ -405,20 +391,14 @@ app.post('/api/pulls', async c => {
     cancelled: false
   }
   jobs.set(job.id, job)
-  event('GET', `${s.name} ${list.length} 项 → ${dest}`)
+  event('GET', `${s.name} ${list.length} 项 → ${dest}`, [
+    `服务器 ${s.name} (${s.host})`,
+    `本地 ${dest}`,
+    ...list.map(p => `远端 ${p}`)
+  ])
   if (presetId) touchPreset(presetId).catch(err => fail('presets', err.message))
   runJob(job, [...job.targets.keys()])
   return c.json({ id: job.id })
-})
-
-app.post('/api/jobs/:id/reveal', c => {
-  const job = jobs.get(c.req.param('id'))
-  if (!job?.localDir) return c.json({ error: '任务不存在或不是拉取任务' }, 404)
-  if (!OPENER) return c.json({ error: '当前系统不支持打开目录' }, 400)
-  spawn(OPENER, [job.localDir], { detached: true, stdio: 'ignore' })
-    .on('error', err => fail('reveal', err.message))
-    .unref()
-  return c.json({ ok: true })
 })
 
 app.post('/api/jobs/:id/retry', async c => {
@@ -464,25 +444,13 @@ app.get('/api/jobs/:id/events', c => {
   })
 })
 
-// 返回实际监听的端口；port 传 0 由系统分配
-export function start(port = PORT) {
+export function start(port) {
   return new Promise((resolve, reject) => {
     const server = serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, info => {
       console.log(`conduit → http://127.0.0.1:${info.port}  (仅监听本机)`)
       console.log(`服务器配置：${CONFIG_PATH}`)
-      if (!keychainAvailable) console.log('提示：非 macOS，密码认证不可用，请用 SSH 密钥')
       resolve(info.port)
     })
     server.once('error', reject)
   })
 }
-
-// 被 Electron 主进程 import 时不自动启动
-const isMain = () => {
-  try {
-    return fileURLToPath(import.meta.url) === realpathSync(process.argv[1])
-  } catch {
-    return false
-  }
-}
-if (isMain()) start()

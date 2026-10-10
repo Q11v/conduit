@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { stat, chmod, readdir, mkdir } from 'node:fs/promises'
 import { basename, join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { log, fail, quoteCmd, oneLine } from './log.js'
+import { note, quoteCmd } from './log.js'
 
 const CMD_TIMEOUT = Number(process.env.CONDUIT_TIMEOUT || 30) * 1000
 
@@ -66,12 +66,12 @@ function explain(stderr, code, auth) {
   return msg || `退出码 ${code}`
 }
 
-function run(cmd, args, env, tag = 'ssh', onChild) {
+function run(cmd, args, conn, tag = 'ssh', onChild) {
   return new Promise(resolve => {
     const started = Date.now()
-    log(tag, quoteCmd(cmd, args))
+    note(conn.trace, tag, `$ ${quoteCmd(cmd, args)}`)
 
-    const child = spawn(cmd, args, { env })
+    const child = spawn(cmd, args, { env: sshEnv(conn) })
     onChild?.(child)
     let stdout = ''
     let stderr = ''
@@ -79,7 +79,7 @@ function run(cmd, args, env, tag = 'ssh', onChild) {
 
     const timer = setTimeout(() => {
       timedOut = true
-      fail(tag, `超时 ${CMD_TIMEOUT / 1000}s，终止进程 pid=${child.pid}`)
+      note(conn.trace, tag, `超时 ${CMD_TIMEOUT / 1000}s，终止进程 pid=${child.pid}`, true)
       child.kill('SIGTERM')
       setTimeout(() => child.kill('SIGKILL'), 2000).unref()
     }, CMD_TIMEOUT)
@@ -92,14 +92,14 @@ function run(cmd, args, env, tag = 'ssh', onChild) {
     })
     child.on('error', err => {
       clearTimeout(timer)
-      fail(tag, `启动失败: ${err.message}`)
+      note(conn.trace, tag, `启动失败: ${err.message}`, true)
       resolve({ code: -1, stdout, stderr: err.message })
     })
     child.on('close', code => {
       clearTimeout(timer)
       const ms = Date.now() - started
       if (timedOut) return resolve({ code: -2, stdout, stderr: 'timeout' })
-      log(tag, `exit=${code} ${ms}ms${stderr.trim() ? ` stderr: ${oneLine(stderr)}` : ''}`)
+      note(conn.trace, tag, `exit=${code} ${ms}ms${stderr.trim() ? `\n${stderr.trim()}` : ''}`, code !== 0)
       resolve({ code, stdout, stderr })
     })
 
@@ -112,7 +112,7 @@ async function ensureRemoteDir(conn, dir, onChild) {
   const { code, stdout, stderr } = await run(
     'ssh',
     [...sshOpts(conn), conn.host, `mkdir -p -- ${q} && cd -- ${q} && pwd`],
-    sshEnv(conn),
+    conn,
     `mkdir ${conn.host}`,
     onChild
   )
@@ -140,7 +140,7 @@ async function remoteSize(conn, remotePath) {
   const script =
     `if [ -d ${q} ]; then find ${q} -type f -exec ls -ln {} + 2>/dev/null | awk '{s+=$5} END {printf "%d", s+0}'; ` +
     `else ls -ln ${q} 2>/dev/null | awk '{printf "%d", $5}'; fi`
-  const { code, stdout } = await run('ssh', [...sshOpts(conn), conn.host, script], sshEnv(conn), `verify ${conn.host}`)
+  const { code, stdout } = await run('ssh', [...sshOpts(conn), conn.host, script], conn, `verify ${conn.host}`)
   if (code !== 0) return null
   const n = Number(stdout.trim())
   return Number.isFinite(n) ? n : null
@@ -157,13 +157,14 @@ const rsyncBase = conn => [
 ]
 
 function rsync(args, conn, tag, onProgress, onChild) {
-  log(tag, quoteCmd('rsync', args))
+  note(conn.trace, tag, `$ ${quoteCmd('rsync', args)}`)
   return new Promise((resolve, reject) => {
     const child = spawn('rsync', args, { env: sshEnv(conn) })
     onChild(child)
     child.stdin.end()
     let stderr = ''
     let buffer = ''
+    let last = null
 
     child.stdout.on('data', chunk => {
       buffer += chunk.toString()
@@ -172,12 +173,13 @@ function rsync(args, conn, tag, onProgress, onChild) {
       for (const line of parts) {
         const m = PROGRESS_RE.exec(line)
         if (m) {
-          onProgress({
+          last = {
             percent: Number(m[2]),
             transferred: Number(m[1].replaceAll(',', '')),
             speed: m[3],
             eta: m[4]
-          })
+          }
+          onProgress(last)
         }
       }
     })
@@ -186,20 +188,23 @@ function rsync(args, conn, tag, onProgress, onChild) {
       stderr += d
     })
     child.on('error', err => {
-      fail(tag, `启动失败: ${err.message}`)
+      note(conn.trace, tag, `启动失败: ${err.message}`, true)
       reject(new Error(`启动 rsync 失败: ${err.message}`))
     })
-    child.on('close', code => resolve({ code, stderr }))
+    child.on('close', code => {
+      if (last) note(conn.trace, tag, `传输 ${last.transferred} 字节 · ${last.percent}% · ${last.speed}`)
+      resolve({ code, stderr })
+    })
   })
 }
 
-function rsyncError(tag, code, stderr, ms, cancelled, auth) {
+function rsyncError(tag, code, stderr, ms, cancelled, conn) {
   if (cancelled) {
-    log(tag, `已取消 ${ms}ms`)
+    note(conn.trace, tag, `已取消 ${ms}ms`)
     return new Error('已取消')
   }
-  fail(tag, `exit=${code} ${ms}ms stderr: ${oneLine(stderr)}`)
-  return new Error(explain(stderr, code, auth))
+  note(conn.trace, tag, `exit=${code} ${ms}ms${stderr.trim() ? `\n${stderr.trim()}` : ''}`, true)
+  return new Error(explain(stderr, code, conn.auth))
 }
 
 export function pushOne({ source, verify = false, onProgress = () => {}, ...conn }) {
@@ -227,17 +232,17 @@ export function pushOne({ source, verify = false, onProgress = () => {}, ...conn
         }
       )
       const ms = Date.now() - started
-      if (code !== 0) throw rsyncError(tag, code, stderr, ms, cancelled, conn.auth)
+      if (code !== 0) throw rsyncError(tag, code, stderr, ms, cancelled, conn)
 
-      log(tag, `完成 ${ms}ms → ${absDir}`)
+      note(conn.trace, tag, `完成 ${ms}ms → ${absDir}`)
       if (!verify) return { remoteDir: absDir }
       const [local, remote] = await Promise.all([localSize(source), remoteSize(conn, `${absDir}/${basename(source)}`)])
       if (remote === null) {
-        log(tag, '校验跳过：读不到远端大小')
+        note(conn.trace, tag, '校验跳过：读不到远端大小')
         return { remoteDir: absDir, verified: null }
       }
       if (remote !== local) throw new Error(`校验不一致：本地 ${local} 字节，远端 ${remote} 字节`)
-      log(tag, `校验通过 ${local} 字节`)
+      note(conn.trace, tag, `校验通过 ${local} 字节`)
       return { remoteDir: absDir, verified: local }
     } catch (err) {
       if (cancelled) throw new Error('已取消', { cause: err })
@@ -261,7 +266,7 @@ async function statRemote(conn, path, onChild) {
   const { code, stdout, stderr } = await run(
     'ssh',
     [...sshOpts(conn), conn.host, script],
-    sshEnv(conn),
+    conn,
     `stat ${conn.host}`,
     onChild
   )
@@ -307,8 +312,8 @@ export function pullOne({ remotePath, localDir, onProgress = () => {}, ...conn }
         }
       )
       const ms = Date.now() - started
-      if (code !== 0) throw rsyncError(tag, code, stderr, ms, cancelled, conn.auth)
-      log(tag, `完成 ${ms}ms → ${localPath}`)
+      if (code !== 0) throw rsyncError(tag, code, stderr, ms, cancelled, conn)
+      note(conn.trace, tag, `完成 ${ms}ms → ${localPath}`)
       return { localPath }
     } catch (err) {
       if (cancelled) throw new Error('已取消', { cause: err })
@@ -339,12 +344,7 @@ export async function browseRemote(conn, path) {
       `if [ -d "$f" ]; then printf 'd\\t\\t%s\\n' "$f"; else printf 'f\\t\\t%s\\n' "$f"; fi; done; fi | head -n ${BROWSE_LIMIT + 1}`
   ].join('\n')
 
-  const { code, stdout, stderr } = await run(
-    'ssh',
-    [...sshOpts(conn), conn.host, script],
-    sshEnv(conn),
-    `browse ${conn.host}`
-  )
+  const { code, stdout, stderr } = await run('ssh', [...sshOpts(conn), conn.host, script], conn, `browse ${conn.host}`)
   if (code !== 0) return { ok: false, reason: explain(stderr, code, conn.auth) }
   if (/^MISSING$/m.test(stdout)) return { ok: false, reason: `路径不存在: ${path}` }
 
@@ -373,47 +373,20 @@ export async function browseRemote(conn, path) {
 }
 
 export async function checkTarget(conn) {
-  const dirs = (Array.isArray(conn.dirs) ? conn.dirs : [conn.dir]).filter(Boolean)
-  const lines = ['command -v rsync >/dev/null 2>&1 && echo RSYNC=yes || echo RSYNC=no']
-  dirs.forEach((d, i) => {
-    const q = shellQuote(d)
-    lines.push(
-      `if [ -d ${q} ]; then [ -w ${q} ] && echo D${i}=writable || echo D${i}=readonly; ` + `else echo D${i}=missing; fi`
-    )
-  })
-
   const { code, stdout, stderr } = await run(
     'ssh',
-    [...sshOpts(conn), conn.host, lines.join('\n')],
-    sshEnv(conn),
+    [...sshOpts(conn), conn.host, 'command -v rsync >/dev/null 2>&1 && echo RSYNC=yes || echo RSYNC=no'],
+    conn,
     `check ${conn.host}`
   )
 
-  if (code !== 0) {
-    const reason = explain(stderr, code, conn.auth)
-    log(`check ${conn.host}`, `判定 FAIL: ${reason}`)
-    return { ok: false, reason, dirs: dirs.map(dir => ({ dir, ok: false, reason })) }
-  }
-  if (!/RSYNC=yes/.test(stdout)) {
-    const reason = '连通，但远端没装 rsync'
-    log(`check ${conn.host}`, `判定 FAIL: ${reason}`)
-    return { ok: false, reason, dirs: dirs.map(dir => ({ dir, ok: false, reason })) }
-  }
-
-  const perDir = dirs.map((dir, i) => {
-    const state = (new RegExp(`D${i}=(\\w+)`).exec(stdout) || [])[1]
-    if (state === 'writable') return { dir, ok: true, state, reason: '目录可写' }
-    if (state === 'missing') return { dir, ok: true, state, reason: '目录不存在，推送时会自动创建' }
-    if (state === 'readonly') return { dir, ok: false, state, reason: '目录存在但当前用户不可写' }
-    return { dir, ok: false, state: 'unknown', reason: '目录状态未知' }
-  })
-
-  const bad = perDir.filter(d => !d.ok)
-  const verdict = {
-    ok: bad.length === 0,
-    reason: bad.length === 0 ? `连通 · ${perDir.length} 个目录就绪` : `连通，但 ${bad.length} 个目录不可写`,
-    dirs: perDir
-  }
-  log(`check ${conn.host}`, `判定 ${verdict.ok ? 'OK' : 'FAIL'}: ${verdict.reason}`)
-  return verdict
+  const reason =
+    code !== 0
+      ? explain(stderr, code, conn.auth)
+      : /RSYNC=yes/.test(stdout)
+        ? '连通 · rsync 可用'
+        : '连通，但远端没装 rsync'
+  const ok = code === 0 && /RSYNC=yes/.test(stdout)
+  note(conn.trace, `check ${conn.host}`, `判定 ${ok ? 'OK' : 'FAIL'}: ${reason}`, !ok)
+  return { ok, reason }
 }

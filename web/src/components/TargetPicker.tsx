@@ -1,8 +1,8 @@
 import { useRef, useState, type KeyboardEvent } from 'react'
-import { Chevron, Plus } from './Icons'
+import { Chevron, Close, Plus, Star } from './Icons'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Chip, InlineAdd, ProbeBadge } from './ui'
+import { Chip, IconBtn, InlineAdd, ProbeBadge } from './ui'
 import type { Probe, Server } from '../types'
 import { splitKey, targetKey } from '../types'
 
@@ -15,12 +15,13 @@ interface Props {
   servers: Server[]
   tags: string[]
   sel: Set<string>
-  totalTargets: number
   probeOf: (serverId: string) => Probe
   adhoc: string
   onToggle: (serverId: string, dir: string) => void
   onToggleTag: (tag: string) => void
   onAddPath: (serverId: string, dir: string) => string | null
+  onPinPath: (serverId: string, dir: string) => void
+  onUnpinPath: (serverId: string, dir: string) => void
   onAdhoc: (v: string) => void
   onGoServers: () => void
   empty: boolean
@@ -131,13 +132,28 @@ export function TargetPicker(p: Props) {
                 return (
                   <label
                     key={dir}
-                    className={`flex items-center gap-2.5 w-[calc(100%-6px)] ml-1.5 px-2 py-1.5 rounded-lg cursor-pointer select-none transition-all duration-150 ${
+                    className={`group flex items-center gap-2.5 w-[calc(100%-6px)] ml-1.5 px-2 py-1.5 rounded-lg cursor-pointer select-none transition-all duration-150 ${
                       checked ? 'bg-[rgba(124,124,245,.12)]' : 'hover:bg-[rgba(255,255,255,.05)]'
                     }`}
                   >
                     <Checkbox checked={checked} onCheckedChange={() => p.onToggle(s.id, dir)} />
                     <span className="flex-1 min-w-0 font-mono text-[12px] text-fg-dim break-all">{dir}</span>
                     {custom && <span className="shrink-0 text-[12px] text-cyan">临时</span>}
+                    <IconBtn
+                      onClick={e => {
+                        e.preventDefault()
+                        if (custom) p.onPinPath(s.id, dir)
+                        else p.onUnpinPath(s.id, dir)
+                      }}
+                      danger={!custom}
+                      title={custom ? `存为 ${s.name} 的常用目录` : `从 ${s.name} 的常用目录里移除`}
+                      aria-label={custom ? `把 ${dir} 存为常用目录` : `把 ${dir} 移出常用目录`}
+                      className={`w-5 h-5 rounded ${
+                        custom ? 'hover:text-warn-text' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100'
+                      }`}
+                    >
+                      {custom ? <Star size={11} /> : <Close size={10} />}
+                    </IconBtn>
                   </label>
                 )
               })}
@@ -175,9 +191,7 @@ export function TargetPicker(p: Props) {
         </div>
 
         <div className="shrink-0 flex items-center gap-2 px-3 py-2 border-t hair bg-[rgba(255,255,255,.02)]">
-          <span className="flex-1 text-[12px] text-mute-4">
-            已选 {p.sel.size} 个目标
-          </span>
+          <span className="flex-1 text-[12px] text-mute-4">已选 {p.sel.size} 个目标</span>
           <button
             onClick={() => {
               setOpen(false)

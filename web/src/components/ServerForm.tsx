@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from 'react'
-import { Close, Plus } from './Icons'
+import { Close } from './Icons'
 import { Btn, Chip, Field, IconBtn } from './ui'
 import { Combobox } from '@/components/ui/combobox'
 import { DialogTitle } from '@/components/ui/dialog'
@@ -51,13 +51,6 @@ export function ServerForm({ mode, draft, msg, keychain, hosts, tags, onChange, 
     if (t && !draft.tags.includes(t)) onChange({ tags: [...draft.tags, t] })
   }
 
-  const setDir = (i: number, v: string) => onChange({ dirs: draft.dirs.map((d, j) => (j === i ? v : d)) })
-  const addDir = () => onChange({ dirs: [...draft.dirs, ''] })
-  const removeDir = (i: number) =>
-    onChange({
-      dirs: draft.dirs.length > 1 ? draft.dirs.filter((_, j) => j !== i) : ['']
-    })
-
   return (
     <>
       <div className="flex items-center gap-2 px-[18px] py-4 border-b hair">
@@ -91,42 +84,6 @@ export function ServerForm({ mode, draft, msg, keychain, hosts, tags, onChange, 
             value={draft.port}
             onChange={e => onChange({ port: e.target.value })}
           />
-        </div>
-
-        <div>
-          <Label hint="推送时作为目标，拉取时作为浏览起点">常用目录</Label>
-          <div className="flex flex-col gap-1.5">
-            {draft.dirs.map((d, i) => (
-              <div key={i} className="relative">
-                <input
-                  value={d}
-                  onChange={e => setDir(i, e.target.value)}
-                  spellCheck={false}
-                  aria-label={`常用目录 ${i + 1}`}
-                  placeholder="/var/www/releases"
-                  className="w-full h-9 pl-[11px] pr-10 rounded-[9px] border field-edge sunken font-mono text-[13px] text-fg outline-0 focus:border-[rgba(124,124,245,.7)]"
-                />
-                {(draft.dirs.length > 1 || d) && (
-                  <IconBtn
-                    onClick={() => removeDir(i)}
-                    danger
-                    aria-label={`删掉常用目录 ${d || i + 1}`}
-                    className="absolute right-1 top-1/2 -translate-y-1/2 w-7 h-7"
-                  >
-                    <Close size={12} />
-                  </IconBtn>
-                )}
-              </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={addDir}
-            className="flex items-center gap-1.5 mt-2 p-0 border-0 bg-transparent text-link text-[12px] cursor-pointer hover:underline"
-          >
-            <Plus size={12} />
-            添加目录
-          </button>
         </div>
 
         <div>

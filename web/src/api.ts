@@ -77,11 +77,9 @@ export const browse = (serverId: string, path: string) => request<Listing>('/api
 export const startPull = (serverId: string, paths: string[], localDir: string, presetId?: string) =>
   request<{ id: string }>('/api/pulls', { serverId, paths, localDir, presetId })
 
-export const revealJob = (id: string) => request<{ ok: true }>(`/api/jobs/${id}/reveal`)
-
 export const cancelJob = (id: string) => request<{ cancelled: number }>(`/api/jobs/${id}/cancel`)
 
-export const getActivity = () => request<{ events: ActivityEvent[] }>('/api/activity', undefined, 'GET')
+export const getActivity = () => request<{ events: ActivityEvent[] }>('/api/activity?limit=1000', undefined, 'GET')
 
 export const getPresets = () => request<{ presets: Preset[] }>('/api/presets', undefined, 'GET')
 
@@ -90,30 +88,6 @@ export const createPreset = (p: PresetInput) => request<Preset>('/api/presets', 
 export const deletePreset = (id: string) => request<{ ok: true }>(`/api/presets/${id}`, undefined, 'DELETE')
 
 export const retryJob = (id: string) => request<{ retrying: string[] }>(`/api/jobs/${id}/retry`)
-
-export function upload(
-  file: File,
-  onProgress: (pct: number) => void
-): Promise<{ source: string; name: string; size: number }> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', '/api/upload')
-    xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name).replace(/%/g, '_'))
-    xhr.upload.onprogress = e => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
-    }
-    xhr.onload = () => {
-      if (xhr.status !== 200) return reject(new Error(xhr.responseText || `HTTP ${xhr.status}`))
-      try {
-        resolve(JSON.parse(xhr.responseText))
-      } catch {
-        reject(new Error('服务端返回了非 JSON'))
-      }
-    }
-    xhr.onerror = () => reject(new Error('网络错误'))
-    xhr.send(file)
-  })
-}
 
 export function subscribe(jobId: string, onSnapshot: (job: JobSnapshot) => void, onError: () => void): () => void {
   const es = new EventSource(`/api/jobs/${jobId}/events`)
@@ -128,9 +102,6 @@ export function subscribe(jobId: string, onSnapshot: (job: JobSnapshot) => void,
   }
   return () => es.close()
 }
-
-// 拖入/选择的文件会先暂存到 <tmp>/conduit-staging/<uuid>/ 下，浏览器拿不到原路径
-export const stagedName = (path: string) => path.match(/[\\/]conduit-staging[\\/][0-9a-f-]{36}[\\/]([^\\/]+)$/)?.[1] ?? null
 
 export const formatSize = (n: number) => {
   if (!Number.isFinite(n)) return ''

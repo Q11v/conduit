@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Doc, Files, Folder, Trash } from './Icons'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import { Btn, IconBtn, SectionHeader } from './ui'
-import { formatLastRun, stagedName } from '../api'
+import { formatLastRun } from '../api'
 import type { Preset, PullPreset, PushPreset, Server } from '../types'
 
 interface Props<P extends Preset> {
@@ -35,22 +35,11 @@ function describePush(p: PushPreset, servers: Server[]): Summary {
   const alive = resolved.filter((x): x is string => x !== null)
   const missing = resolved.length - alive.length
   const targets = [...alive, ...p.adhoc]
-  const staged = stagedName(p.src)
   return {
     count: `${targets.length} 个目标`,
     broken: missing > 0 ? `${missing} 个已失效` : null,
     rows: [
-      [
-        '来源',
-        staged ? (
-          <span title={p.src}>
-            {staged}
-            <span className="text-mute-3"> · 临时副本</span>
-          </span>
-        ) : (
-          p.src || none('每次推送前选择')
-        )
-      ],
+      ['来源', p.src || none('每次推送前选择')],
       ['目标', targets.length ? <ItemList items={targets} /> : none('无')]
     ]
   }

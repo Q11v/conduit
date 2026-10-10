@@ -13,7 +13,9 @@ const stroke = (w = 1.8) => ({
 
 export const Logo = ({ size = 15 }: Props) => (
   <svg width={size} height={size} viewBox="0 0 120 120" fill="none">
-    <path d="M96.77 90.86A48 48 0 1 1 96.77 29.14L79.92 43.28A26 26 0 1 0 79.92 76.72Z" fill="#fff" />
+    <path d="M70.6 41.2A28 28 0 1 0 70.6 78.8" stroke="#fff" strokeWidth="17" strokeLinecap="round" />
+    <rect x="80" y="54" width="12" height="12" rx="3.5" fill="#a5f0fb" />
+    <rect x="98" y="56" width="8" height="8" rx="2.5" fill="#a5f0fb" fillOpacity=".7" />
   </svg>
 )
 

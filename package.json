@@ -1,18 +1,12 @@
 {
   "name": "conduit",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
-  "bin": {
-    "conduit": "./server/index.js"
-  },
   "scripts": {
-    "start": "vite build && node server/index.js",
-    "serve": "node server/index.js",
+    "start": "vite build && env -u ELECTRON_RUN_AS_NODE electron .",
+    "dev": "vite & trap 'kill 0' EXIT; CONDUIT_DEV_URL=http://localhost:5173/ env -u ELECTRON_RUN_AS_NODE electron .",
     "build": "vite build",
-    "dev": "node server/index.js & trap 'kill 0' EXIT; vite",
-    "desktop": "vite build && env -u ELECTRON_RUN_AS_NODE electron .",
-    "desktop:dev": "env -u ELECTRON_RUN_AS_NODE electron .",
     "dist": "vite build && electron-builder --dir",
     "dist:dmg": "vite build && electron-builder",
     "typecheck": "tsc --noEmit",
@@ -28,6 +22,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@fontsource/jetbrains-mono": "^5.3.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

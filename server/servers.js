@@ -18,7 +18,6 @@ export async function loadServers() {
           : typeof s.dir === 'string' && s.dir.trim()
             ? [s.dir.trim()]
             : []
-        if (dirs.length === 0) return null
         const { dir, group, ...rest } = s
         const tags = cleanTags(Array.isArray(s.tags) ? s.tags : group ? [group] : [])
         return { ...rest, dirs: [...new Set(dirs)], tags }
@@ -51,8 +50,7 @@ function clean(input) {
   const dirs = [...new Set(raw.map(d => String(d ?? '').trim()).filter(Boolean))]
 
   if (!host) throw new Error('主机不能为空')
-  if (dirs.length === 0) throw new Error('至少要填一个常用目录')
-  if (host.includes(':')) throw new Error('主机里不要带冒号和路径，端口填端口格，目录填目录格')
+  if (host.includes(':')) throw new Error('主机里不要带冒号和路径，端口填端口格')
   for (const d of dirs) {
     if (!d.startsWith('/') && !d.startsWith('~')) {
       throw new Error(`常用目录请用绝对路径或 ~ 开头：${d}`)

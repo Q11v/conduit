@@ -34,6 +34,17 @@ const loadPullDir = () => {
   }
 }
 
+const RECENT_DIRS_KEY = 'conduit.pullDirs'
+const COMMON_LOCAL_DIRS = ['~/Downloads', '~/Desktop', '~/Documents']
+const loadRecentDirs = (): string[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(RECENT_DIRS_KEY) || '[]')
+    return Array.isArray(v) ? v.filter(x => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 const VIEW_KEY = 'conduit.view'
 const VIEWS: View[] = ['push', 'pull', 'log', 'servers']
 const loadView = (): View => {
@@ -59,7 +70,6 @@ export function useConduit() {
 
   const [src, setSrc] = useState('')
   const [size, setSize] = useState<number | null>(null)
-  const [staging, setStaging] = useState<{ name: string; pct: number } | null>(null)
   const [adhoc, setAdhoc] = useState('')
 
   const [presets, setPresets] = useState<Preset[]>([])
@@ -78,6 +88,7 @@ export function useConduit() {
   const [pullServerId, setPullServerId] = useState('')
   const [pullPaths, setPullPaths] = useState<string[]>([])
   const [pullDir, setPullDir] = useState(loadPullDir)
+  const [recentDirs, setRecentDirs] = useState(loadRecentDirs)
   const [pullStatus, setPullStatus] = useState<Status | null>(null)
 
   const [job, setJob] = useState<JobSnapshot | null>(null)
@@ -184,8 +195,6 @@ export function useConduit() {
     return out
   }, [sel, servers])
 
-  const totalTargets = useMemo(() => servers.reduce((n, s) => n + s.dirs.length, 0), [servers])
-
   const check = useCallback(async (serverId: string) => {
     setChecks(c => ({ ...c, [serverId]: 'testing' }))
     const r = await api.checkServer(serverId)
@@ -194,7 +203,6 @@ export function useConduit() {
       [serverId]: {
         ok: !!r.ok,
         reason: why(r),
-        dirs: Array.isArray(r.dirs) ? r.dirs : [],
         at: Date.now()
       }
     }))
@@ -235,7 +243,7 @@ export function useConduit() {
         tags: [...(s.tags ?? [])],
         host: s.host,
         port: s.port ? String(s.port) : '',
-        dirs: s.dirs.length ? [...s.dirs] : [''],
+        dirs: [...s.dirs],
         auth: s.auth,
         password: ''
       })
@@ -249,9 +257,8 @@ export function useConduit() {
   }, [])
 
   const checkForm = useCallback(async () => {
-    const dirs = draft.dirs.map(d => d.trim()).filter(Boolean)
-    if (!draft.host.trim() || dirs.length === 0) {
-      return setFormMsg({ text: '先填主机和至少一个常用目录', bad: true })
+    if (!draft.host.trim()) {
+      return setFormMsg({ text: '先填主机', bad: true })
     }
     if (draft.auth === 'password' && !draft.password && form === 'new') {
       return setFormMsg({ text: '先填密码', bad: true })
@@ -259,54 +266,67 @@ export function useConduit() {
     setFormMsg({ text: '检测中…', bad: false })
     const reuseKeychain = form && form !== 'new' && draft.auth === 'password' && !draft.password
     const r = reuseKeychain ? await api.checkServer(form) : await api.checkDraft(draft)
-    const detail =
-      Array.isArray(r.dirs) && r.dirs.length > 1
-        ? '\n' + r.dirs.map(d => `${d.ok ? '✓' : '✗'} ${d.dir} ${d.reason}`).join('\n')
-        : ''
-    setFormMsg({ text: `${r.ok ? '✓' : '✗'} ${why(r)}${detail}`, bad: !r.ok })
+    setFormMsg({ text: `${r.ok ? '✓' : '✗'} ${why(r)}`, bad: !r.ok })
   }, [draft, form])
 
   const submitForm = useCallback(async () => {
     const r = form === 'new' ? await api.createServer(draft) : await api.saveServer(form!, draft)
     if (!r.ok) return setFormMsg({ text: why(r), bad: true })
-    const created = form === 'new' ? (r as Server) : null
     closeForm()
     await reloadServers()
-    if (created?.id && Array.isArray(created.dirs)) {
-      setSel(prev => {
-        const next = new Set(prev)
-        created.dirs.forEach(d => next.add(targetKey(created.id, d)))
-        return next
-      })
-    }
   }, [draft, form, closeForm, reloadServers])
 
-  const pinPath = useCallback(
-    async (serverId: string, dir: string) => {
+  const reportTo = (kind: JobKind) => (kind === 'pull' ? setPullStatus : setStatus)
+
+  const saveDirs = useCallback(
+    async (serverId: string, dirs: string[], done: string, kind: JobKind) => {
+      const report = reportTo(kind)
       const s = servers.find(x => x.id === serverId)
-      if (!s || s.dirs.includes(dir)) return
+      if (!s) return
       const r = await api.saveServer(s.id, {
         name: s.name && s.name !== s.host ? s.name : '',
         tags: [...(s.tags ?? [])],
         host: s.host,
         port: s.port ? String(s.port) : '',
-        dirs: [...s.dirs, dir],
+        dirs,
         auth: s.auth,
         password: ''
       })
-      if (!r.ok) return setStatus({ text: why(r), bad: true })
+      if (!r.ok) return report({ text: why(r), bad: true })
       await reloadServers()
-      setStatus({ text: `已把 ${dir} 存为 ${s.name} 的常用目录`, bad: false })
+      report({ text: `${done}（${s.name}）`, bad: false })
     },
     [servers, reloadServers]
+  )
+
+  const pinPath = useCallback(
+    (serverId: string, dir: string, kind: JobKind = 'push') => {
+      const s = servers.find(x => x.id === serverId)
+      if (s && !s.dirs.includes(dir)) void saveDirs(serverId, [...s.dirs, dir], `已把 ${dir} 存为常用目录`, kind)
+    },
+    [servers, saveDirs]
+  )
+
+  const unpinPath = useCallback(
+    (serverId: string, dir: string) => {
+      const s = servers.find(x => x.id === serverId)
+      if (s?.dirs.includes(dir))
+        void saveDirs(
+          serverId,
+          s.dirs.filter(d => d !== dir),
+          `已把 ${dir} 移出常用目录`,
+          'push'
+        )
+    },
+    [servers, saveDirs]
   )
 
   const remove = useCallback(
     async (id: string) => {
       const s = servers.find(x => x.id === id)
       if (!s) return
-      const extra = s.auth === 'password' ? '\n钥匙串里的密码也会一并删除。' : ''
-      if (!confirm(`删除「${s.name}」？${extra}`)) return
+      const extra = s.auth === 'password' ? '钥匙串里的密码也会一并删除。' : undefined
+      if (!(await window.desktop.confirm(`删除「${s.name}」？`, extra, '删除'))) return
       const r = await api.deleteServer(id)
       if (!r.ok) return
       setSel(prev => {
@@ -320,33 +340,29 @@ export function useConduit() {
     [servers, form, closeForm, reloadServers]
   )
 
-  const pickFile = useCallback(async (file: File) => {
+  const applySource = useCallback(async (path: string) => {
     setStatus(null)
-    const desktop = window.conduitDesktop
-    const path = desktop?.pathForFile(file)
-    if (desktop && path) {
-      const info = await desktop.stat(path)
-      setSrc(path)
-      setSize(info && !info.dir ? info.size : null)
-      setStaging(null)
-      return
-    }
-    setStaging({ name: file.name, pct: 0 })
-    try {
-      const r = await api.upload(file, pct => setStaging({ name: file.name, pct }))
-      setSrc(r.source)
-      setSize(r.size)
-      setStaging(null)
-    } catch (e) {
-      setStaging(null)
-      setStatus({ text: `暂存失败：${(e as Error).message}`, bad: true })
-    }
+    setSrc(path)
+    const info = await window.desktop.stat(path)
+    setSize(info && !info.dir ? info.size : null)
   }, [])
+
+  const pickSource = useCallback(async () => {
+    const path = await window.desktop.pick({ defaultPath: src.trim() || undefined })
+    if (path) await applySource(path)
+  }, [src, applySource])
+
+  const dropFile = useCallback(
+    (file: File) => {
+      const path = window.desktop.pathForFile(file)
+      if (path) void applySource(path)
+    },
+    [applySource]
+  )
 
   const typeSrc = useCallback((v: string) => {
     setSrc(v)
     setSize(null)
-    setStaging(null)
   }, [])
 
   const adhocTargets = useMemo(
@@ -359,8 +375,6 @@ export function useConduit() {
   )
 
   const ready = src.trim().length > 0 && selected.length + adhocTargets.length > 0
-
-  const reportTo = (kind: JobKind) => (kind === 'pull' ? setPullStatus : setStatus)
 
   const listen = useCallback(
     (id: string, kind: JobKind) => {
@@ -435,7 +449,6 @@ export function useConduit() {
       setAdhoc(p.adhoc.join('\n'))
       setSrc(p.src)
       setSize(null)
-      setStaging(null)
       setAppliedPreset(p.id)
       setView('push')
       setStatus(missing > 0 ? { text: `方案里有 ${missing} 个目标已失效（服务器被删），已跳过`, bad: true } : null)
@@ -451,7 +464,7 @@ export function useConduit() {
   const removePreset = useCallback(
     async (id: string) => {
       const p = presets.find(x => x.id === id)
-      if (!p || !confirm(`删除方案「${p.name}」？`)) return
+      if (!p || !(await window.desktop.confirm(`删除方案「${p.name}」？`, undefined, '删除'))) return
       const r = await api.deletePreset(id)
       if (!r.ok) return
       if (appliedPreset === id) setAppliedPreset(null)
@@ -492,8 +505,12 @@ export function useConduit() {
         setBusy(null)
         return setPullStatus({ text: why(r), bad: true })
       }
+      const dir = localDir.trim().replace(/(.)\/+$/, '$1')
+      const recent = [dir, ...loadRecentDirs().filter(d => d !== dir)].slice(0, 5)
+      setRecentDirs(recent)
       try {
-        localStorage.setItem(PULL_DIR_KEY, localDir.trim())
+        localStorage.setItem(PULL_DIR_KEY, dir)
+        localStorage.setItem(RECENT_DIRS_KEY, JSON.stringify(recent))
       } catch {}
       jobIdRef.current = r.id
       listen(r.id, 'pull')
@@ -581,8 +598,14 @@ export function useConduit() {
   }, [job])
 
   const revealJob = useCallback(() => {
-    if (jobIdRef.current) void api.revealJob(jobIdRef.current)
-  }, [])
+    const paths = job?.targets.flatMap(t => (t.status === 'done' && t.localPath ? [t.localPath] : [])) ?? []
+    void window.desktop.reveal(paths)
+  }, [job])
+
+  const pickPullDir = useCallback(async () => {
+    const path = await window.desktop.pick({ dir: true, defaultPath: pullDir.trim() || undefined })
+    if (path) setPullDir(path)
+  }, [pullDir])
 
   const dismissJob = useCallback(() => {
     unsubRef.current?.()
@@ -615,7 +638,7 @@ export function useConduit() {
     toggleTag,
     addPath,
     pinPath,
-    totalTargets,
+    unpinPath,
     checks,
     probeOf,
     check,
@@ -634,8 +657,8 @@ export function useConduit() {
     src,
     setSrc: typeSrc,
     size,
-    staging,
-    pickFile,
+    pickSource,
+    dropFile,
     adhoc,
     setAdhoc,
     adhocTargets,
@@ -654,6 +677,8 @@ export function useConduit() {
     togglePullPath,
     pullDir,
     setPullDir,
+    localDirOptions: [...new Set([...recentDirs, ...COMMON_LOCAL_DIRS])],
+    pickPullDir,
     pullReady,
     pull,
     pullStatusText,

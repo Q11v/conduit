@@ -1,22 +1,21 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ArrowUp, FileIcon, Star, Upload } from './Icons'
 import { Btn, Chip, CountBadge, IconBtn, InlineAdd, PrimaryAction, ProbeBadge, StatusLine, StepLabel } from './ui'
 import { Checkbox } from '@/components/ui/checkbox'
 import { TargetPicker } from './TargetPicker'
-import { formatSize, stagedName } from '../api'
+import { formatSize } from '../api'
 import type { Probe, SelectedTarget, Server } from '../types'
 import type { Status } from '../useConduit'
 
 interface Props {
   src: string
   size: number | null
-  staging: { name: string; pct: number } | null
   onSrc: (v: string) => void
-  onFile: (f: File) => void
+  onPick: () => void
+  onDrop: (f: File) => void
 
   selected: SelectedTarget[]
   adhocTargets: string[]
-  totalTargets: number
   probeOf: (serverId: string) => Probe
   onToggle: (key: string) => void
   onRemoveAdhoc: (spec: string) => void
@@ -28,6 +27,7 @@ interface Props {
   onToggleTag: (tag: string) => void
   onAddPath: (serverId: string, dir: string) => string | null
   onPinPath: (serverId: string, dir: string) => void
+  onUnpinPath: (serverId: string, dir: string) => void
   adhoc: string
   onAdhoc: (v: string) => void
   onGoServers: () => void
@@ -41,21 +41,14 @@ interface Props {
   onSave: () => void
 }
 
-const Pill = ({ children, tone = 'plain' }: { children: React.ReactNode; tone?: 'plain' | 'violet' }) => (
-  <span
-    className={`shrink-0 whitespace-nowrap px-2.5 py-0.5 rounded-full text-[12px] ${
-      tone === 'violet' ? 'bg-[rgba(124,124,245,.18)] text-violet-text' : 'bg-[rgba(255,255,255,.08)] text-fg-dim'
-    }`}
-  >
+const Pill = ({ children }: { children: React.ReactNode }) => (
+  <span className="shrink-0 whitespace-nowrap px-2.5 py-0.5 rounded-full text-[12px] bg-[rgba(255,255,255,.08)] text-fg-dim">
     {children}
   </span>
 )
 
 export function PushCard(p: Props) {
-  const fileInput = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
-  const [editing, setEditing] = useState(false)
-  const staged = stagedName(p.src) != null
   const targetCount = p.selected.length + p.adhocTargets.length
   const live = p.ready && !p.busy
   const fileName = p.src.split('/').filter(Boolean).pop() || ''
@@ -86,7 +79,7 @@ export function PushCard(p: Props) {
             e.preventDefault()
             setOver(false)
             const f = e.dataTransfer.files[0]
-            if (f) p.onFile(f)
+            if (f) p.onDrop(f)
           }}
         >
           <StepLabel step="01" title="本地来源" hint="填路径、点「选择」或拖进来" />
@@ -106,17 +99,10 @@ export function PushCard(p: Props) {
                 >
                   {fileName || '未选择来源'}
                 </span>
-                {p.staging ? (
-                  <Pill tone="violet">暂存中 {p.staging.pct}%</Pill>
-                ) : (
-                  p.size != null && <Pill>{formatSize(p.size)}</Pill>
-                )}
+                {p.size != null && <Pill>{formatSize(p.size)}</Pill>}
               </div>
               <input
-                value={staged && !editing ? '临时副本（原路径浏览器拿不到）· 点击查看完整路径' : p.src}
-                title={staged ? p.src : undefined}
-                onFocus={() => setEditing(true)}
-                onBlur={() => setEditing(false)}
+                value={p.src}
                 onChange={e => p.onSrc(e.target.value)}
                 placeholder="/Users/you/dist/app-1.2.0.tar.gz"
                 spellCheck={false}
@@ -127,18 +113,11 @@ export function PushCard(p: Props) {
 
             <button
               type="button"
-              onClick={() => fileInput.current?.click()}
+              onClick={p.onPick}
               className="shrink-0 whitespace-nowrap px-[11px] py-[5px] border hair-3 rounded-lg bg-[rgba(255,255,255,.06)] text-fg-soft text-xs cursor-pointer transition-all duration-150 hover:bg-[rgba(255,255,255,.12)] hover:text-white"
             >
               选择
             </button>
-
-            {p.staging && (
-              <div
-                className="absolute left-0 bottom-0 h-[2px] bg-linear-[90deg,var(--color-violet-hi),var(--color-cyan)] transition-[width] duration-200"
-                style={{ width: `${p.staging.pct}%` }}
-              />
-            )}
 
             {over && (
               <div className="absolute inset-0 flex items-center justify-center gap-2 bg-[rgba(26,26,44,.95)] text-violet-text text-[13px] pointer-events-none">
@@ -147,17 +126,6 @@ export function PushCard(p: Props) {
               </div>
             )}
           </div>
-
-          <input
-            ref={fileInput}
-            type="file"
-            hidden
-            onChange={e => {
-              const f = e.target.files?.[0]
-              if (f) p.onFile(f)
-              e.target.value = ''
-            }}
-          />
         </div>
 
         <span className="hidden md:flex items-center h-[58px] mt-7 text-mute-4">→</span>
@@ -232,12 +200,13 @@ export function PushCard(p: Props) {
                 servers={p.servers}
                 tags={p.tags}
                 sel={p.sel}
-                totalTargets={p.totalTargets}
                 probeOf={p.probeOf}
                 adhoc={p.adhoc}
                 onToggle={p.onToggleDir}
                 onToggleTag={p.onToggleTag}
                 onAddPath={p.onAddPath}
+                onPinPath={p.onPinPath}
+                onUnpinPath={p.onUnpinPath}
                 onAdhoc={p.onAdhoc}
                 onGoServers={p.onGoServers}
                 empty={targetCount === 0}
