@@ -474,6 +474,21 @@ export function useConduit() {
     [presets, appliedPreset, appliedPullPreset, reloadPresets]
   )
 
+  // 先改本地顺序，写盘失败再从服务端拉回来
+  const reorderPresets = useCallback(
+    async (ids: string[]) => {
+      const pos = new Map(ids.map((id, i) => [id, i]))
+      setPresets(list => {
+        const slots = list.filter(p => pos.has(p.id)).sort((a, b) => pos.get(a.id)! - pos.get(b.id)!)
+        let k = 0
+        return list.map(p => (pos.has(p.id) ? slots[k++] : p))
+      })
+      const r = await api.reorderPresets(ids)
+      if (!r.ok) await reloadPresets()
+    },
+    [reloadPresets]
+  )
+
   const pullServer = useMemo(
     () => servers.find(s => s.id === pullServerId) ?? servers[0] ?? null,
     [servers, pullServerId]
@@ -693,6 +708,7 @@ export function useConduit() {
     appliedPreset,
     applyPreset,
     removePreset,
+    reorderPresets,
     appliedPullPreset,
     applyPullPreset,
     saveOpen,

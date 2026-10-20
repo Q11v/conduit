@@ -108,6 +108,7 @@ export default function App() {
               applied={c.appliedPreset}
               onApply={c.applyPreset}
               onDelete={c.removePreset}
+              onReorder={c.reorderPresets}
             />
           </div>
         )}
@@ -145,6 +146,7 @@ export default function App() {
             applied={c.appliedPullPreset}
             onApply={c.applyPullPreset}
             onDelete={c.removePreset}
+            onReorder={c.reorderPresets}
           />
         )}
 

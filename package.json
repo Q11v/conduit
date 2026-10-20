@@ -1,6 +1,6 @@
 {
   "name": "conduit",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -73,6 +73,7 @@
         "NSLocalNetworkUsageDescription": "conduit 要通过 SSH 连接局域网里的服务器，用于检测、推送和拉取。"
       },
       "hardenedRuntime": false
-    }
+    },
+    "afterPack": "build/after-pack.cjs"
   }
 }

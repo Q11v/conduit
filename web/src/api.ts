@@ -85,6 +85,8 @@ export const getPresets = () => request<{ presets: Preset[] }>('/api/presets', u
 
 export const createPreset = (p: PresetInput) => request<Preset>('/api/presets', p)
 
+export const reorderPresets = (ids: string[]) => request<{ ok: true }>('/api/presets/order', { ids }, 'PUT')
+
 export const deletePreset = (id: string) => request<{ ok: true }>(`/api/presets/${id}`, undefined, 'DELETE')
 
 export const retryJob = (id: string) => request<{ retrying: string[] }>(`/api/jobs/${id}/retry`)

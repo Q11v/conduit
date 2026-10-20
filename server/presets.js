@@ -105,3 +105,14 @@ export async function touchPreset(id) {
   list[i] = { ...list[i], lastRun: new Date().toISOString() }
   await persist(list)
 }
+
+// 只重排给出的这些 id：它们原来占的位置按新顺序填回去，推送/拉取两类互不影响
+export async function reorderPresets(ids) {
+  if (!Array.isArray(ids)) throw new Error('ids 必须是数组')
+  const list = await loadPresets()
+  const byId = new Map(list.map(p => [p.id, p]))
+  const order = [...new Set(ids)].filter(id => byId.has(id))
+  const wanted = new Set(order)
+  let k = 0
+  await persist(list.map(p => (wanted.has(p.id) ? byId.get(order[k++]) : p)))
+}

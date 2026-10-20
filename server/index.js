@@ -10,7 +10,7 @@ import { parseTarget, sshConfigHosts, cleanPullPaths, checkLocalDir } from './ta
 import { pushOne, pullOne, checkTarget, browseRemote } from './transfer.js'
 import { loadServers, addServer, updateServer, removeServer, withSecret, CONFIG_PATH } from './servers.js'
 import { keychainAvailable } from './secrets.js'
-import { loadPresets, addPreset, removePreset, touchPreset, PRESETS_PATH } from './presets.js'
+import { loadPresets, addPreset, removePreset, reorderPresets, touchPreset, PRESETS_PATH } from './presets.js'
 import { log, fail, event, recentEvents, LOG_FILE } from './log.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -248,6 +248,15 @@ app.get('/api/presets', async c => c.json({ presets: await loadPresets() }))
 app.post('/api/presets', async c => {
   try {
     return c.json(await addPreset(await c.req.json()))
+  } catch (err) {
+    return c.json({ error: err.message }, 400)
+  }
+})
+
+app.put('/api/presets/order', async c => {
+  try {
+    await reorderPresets((await c.req.json()).ids)
+    return c.json({ ok: true })
   } catch (err) {
     return c.json({ error: err.message }, 400)
   }

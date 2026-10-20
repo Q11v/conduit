@@ -72,6 +72,7 @@ App 只做了 ad-hoc 签名，首次打开要在 Finder 里右键 →「打开�
 - 源码不写注释，行为以代码为准
 - 颜色、对比度、描边都集中在 `web/src/index.css`，改色值前先核对 WCAG 对比度
 - `npm run lint` / `npm run format` / `npm run typecheck`。TypeScript 7 是原生版本、不再导出 JS 编译器 API，所以 ESLint 用 oxc 解析 TS/TSX，类型检查由 `tsc --noEmit` 负责
+- 打包时 `build/after-pack.cjs` 会把主程序的 Mach-O UUID 改成由 appId 算出的固定值：macOS 的「本地网络」权限按这个 UUID 认 App，不改的话所有 Electron 应用共用一个 UUID，conduit 拿不到自己的权限
 - 改完 `server/` 或 `electron/` 要重启 App，前端在 `npm run dev` 下热更新
 
 排障先看活动记录里那一条的详情，或 `~/Library/Logs/conduit/conduit.log`（开发时 `npm start` / `npm run dev` 的终端也有同样输出），命令可以直接复制重跑：
