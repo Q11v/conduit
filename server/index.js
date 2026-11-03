@@ -4,20 +4,22 @@ import { streamSSE } from 'hono/streaming'
 import { readFile, stat } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { basename, extname, join, dirname, isAbsolute } from 'node:path'
+import { basename, extname, join, dirname, isAbsolute, resolve, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseTarget, sshConfigHosts, cleanPullPaths, checkLocalDir } from './targets.js'
+import { parseTarget, sshConfigHosts, sshEndpoint, cleanPullPaths, checkLocalDir } from './targets.js'
 import { pushOne, pullOne, checkTarget, browseRemote } from './transfer.js'
 import { loadServers, addServer, updateServer, removeServer, withSecret, CONFIG_PATH } from './servers.js'
 import { keychainAvailable } from './secrets.js'
 import { loadPresets, addPreset, removePreset, reorderPresets, touchPreset, PRESETS_PATH } from './presets.js'
 import { log, fail, event, recentEvents, LOG_FILE } from './log.js'
+import { createJobRunner } from './job-runner.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const DIST = join(ROOT, 'web', 'dist')
-const MAX_PARALLEL = Math.max(1, Math.min(16, Number(process.env.CONDUIT_PARALLEL) || 4))
+const MAX_PARALLEL = Math.max(1, Math.min(16, Math.floor(Number(process.env.CONDUIT_PARALLEL) || 4)))
 
 const jobs = new Map()
+const taskListeners = new Set()
 
 const expandHome = p => (p === '~' ? homedir() : p.startsWith('~/') ? join(homedir(), p.slice(2)) : p)
 
@@ -56,10 +58,14 @@ const snapshot = job => ({
   id: job.id,
   kind: job.kind,
   sourceName: job.sourceName,
+  presetId: job.presetId,
+  title: job.title,
+  createdAt: job.createdAt,
+  revision: job.revision || 0,
   size: job.size,
   localDir: job.localDir,
   targets: [...job.targets.values()].map(
-    ({ key, spec, label, dir, status, percent, speed, eta, error, remoteDir, localPath }) => ({
+    ({ key, spec, label, dir, status, percent, speed, eta, error, remoteDir, localPath, waiting }) => ({
       key,
       spec,
       label,
@@ -70,15 +76,18 @@ const snapshot = job => ({
       eta,
       error,
       remoteDir,
-      localPath
+      localPath,
+      waiting
     })
   ),
   done: [...job.targets.values()].every(t => t.status === 'done' || t.status === 'error')
 })
 
 function publish(job) {
+  job.revision = (job.revision || 0) + 1
   const data = snapshot(job)
   for (const listener of job.listeners) listener(data)
+  for (const listener of taskListeners) listener(data)
 }
 
 function startTask(job, t, onProgress) {
@@ -88,57 +97,29 @@ function startTask(job, t, onProgress) {
     : pushOne({ ...conn, source: job.source, dir: t.dir, verify: job.verify })
 }
 
-async function runJob(job, keys) {
-  const queue = [...keys]
-  const worker = async () => {
-    while (queue.length) {
-      const key = queue.shift()
-      const t = job.targets.get(key)
-      if (job.cancelled) {
-        t.status = 'error'
-        t.error = '已取消'
-        publish(job)
-        continue
-      }
-      t.status = 'running'
-      t.percent = 0
-      t.error = null
-      t.trace = []
-      publish(job)
-      const started = Date.now()
-      try {
-        const task = startTask(job, t, p => {
-          Object.assign(t, p)
-          publish(job)
-        })
-        job.running.set(key, task)
-        const { remoteDir, localPath } = await task
-        t.status = 'done'
-        t.percent = 100
-        t.remoteDir = remoteDir
-        t.localPath = localPath
-        const secs = ((Date.now() - started) / 1000).toFixed(1)
-        event(
-          'OK',
-          job.kind === 'pull'
-            ? `${t.label} ${t.dir} 拉取完成，${secs}s → ${localPath}`
-            : `${t.label} ${t.dir} 完成，${secs}s → ${remoteDir}`,
-          t.trace
-        )
-      } catch (err) {
-        t.status = 'error'
-        t.error = err.message
-        event(err.message === '已取消' ? 'WARN' : 'FAIL', `${t.label} ${t.dir} ${err.message}`, t.trace)
-      } finally {
-        job.running.delete(key)
-        publish(job)
-      }
+const { runJob, cancelJob } = createJobRunner({
+  parallel: MAX_PARALLEL,
+  startTask,
+  publish,
+  event,
+  resourcesFor: (job, t) => {
+    const remote = {
+      scope: `remote:${sshEndpoint(t.host, t.port)}`,
+      path: posix.normalize(t.dir),
+      read: job.kind === 'pull'
     }
+    return job.kind === 'pull' ? [remote, { scope: 'local', path: resolve(job.localDir) }] : [remote]
   }
-  await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL, queue.length) }, worker))
+})
+
+const activePreset = id => id && [...jobs.values()].some(job => job.presetId === id && !snapshot(job).done)
+
+async function jobMeta(presetId) {
+  const preset = presetId ? (await loadPresets()).find(p => p.id === presetId) : null
+  return { presetId: presetId || null, title: preset?.name || null, createdAt: new Date().toISOString() }
 }
 
-const app = new Hono()
+export const app = new Hono()
 
 app.use('*', async (c, next) => {
   const started = Date.now()
@@ -307,8 +288,31 @@ app.post('/api/browse', async c => {
   }
 })
 
+app.get('/api/jobs', c => c.json({ jobs: [...jobs.values()].map(snapshot) }))
+
+app.get('/api/jobs/events', c =>
+  streamSSE(c, async stream => {
+    let finish
+    const finished = new Promise(resolve => {
+      finish = resolve
+    })
+    const push = data => {
+      void stream.writeSSE({ data: JSON.stringify(data) }).catch(finish)
+    }
+    taskListeners.add(push)
+    stream.onAbort(finish)
+    for (const job of jobs.values()) push(snapshot(job))
+    try {
+      await finished
+    } finally {
+      taskListeners.delete(push)
+    }
+  })
+)
+
 app.post('/api/jobs', async c => {
-  const { source, targets, presetId, verify } = await c.req.json()
+  const { source: rawSource, targets, presetId, verify } = await c.req.json()
+  const source = expandHome(String(rawSource || '').trim())
   if (!source) return c.json({ error: '缺少 source' }, 400)
   if (!Array.isArray(targets) || targets.length === 0) {
     return c.json({ error: '至少选一个目标' }, 400)
@@ -328,7 +332,10 @@ app.post('/api/jobs', async c => {
     return c.json({ error: err.message }, 400)
   }
 
+  const meta = await jobMeta(presetId)
+  if (activePreset(presetId)) return c.json({ error: '这个方案已有任务在进行中' }, 409)
   const job = {
+    ...meta,
     id: randomUUID(),
     kind: 'push',
     source,
@@ -347,8 +354,8 @@ app.post('/api/jobs', async c => {
     ...(job.verify ? ['推送后校验大小'] : [])
   ])
   if (presetId) touchPreset(presetId).catch(err => fail('presets', err.message))
-  runJob(job, [...job.targets.keys()])
-  return c.json({ id: job.id })
+  void runJob(job, [...job.targets.keys()])
+  return c.json({ id: job.id, job: snapshot(job) })
 })
 
 app.post('/api/pulls', async c => {
@@ -372,7 +379,10 @@ app.post('/api/pulls', async c => {
     return c.json({ error: err.message }, 400)
   }
 
+  const meta = await jobMeta(presetId)
+  if (activePreset(presetId)) return c.json({ error: '这个方案已有任务在进行中' }, 409)
   const job = {
+    ...meta,
     id: randomUUID(),
     kind: 'pull',
     sourceName: s.name,
@@ -406,27 +416,28 @@ app.post('/api/pulls', async c => {
     ...list.map(p => `远端 ${p}`)
   ])
   if (presetId) touchPreset(presetId).catch(err => fail('presets', err.message))
-  runJob(job, [...job.targets.keys()])
-  return c.json({ id: job.id })
+  void runJob(job, [...job.targets.keys()])
+  return c.json({ id: job.id, job: snapshot(job) })
 })
 
 app.post('/api/jobs/:id/retry', async c => {
   const job = jobs.get(c.req.param('id'))
   if (!job) return c.json({ error: '任务不存在' }, 404)
+  if (!snapshot(job).done) return c.json({ error: '任务还在进行中' }, 409)
+  if (activePreset(job.presetId)) return c.json({ error: '这个方案已有任务在进行中' }, 409)
   const failed = [...job.targets.values()].filter(t => t.status === 'error').map(t => t.key)
   if (failed.length === 0) return c.json({ error: '没有失败的目标' }, 400)
   event(job.kind === 'pull' ? 'GET' : 'PUT', `重试 ${failed.length} 个失败${job.kind === 'pull' ? '项' : '目标'}`)
   job.cancelled = false
-  runJob(job, failed)
-  return c.json({ retrying: failed })
+  void runJob(job, failed)
+  return c.json({ retrying: failed, job: snapshot(job) })
 })
 
 app.post('/api/jobs/:id/cancel', c => {
   const job = jobs.get(c.req.param('id'))
   if (!job) return c.json({ error: '任务不存在' }, 404)
-  job.cancelled = true
   const running = [...job.running.values()]
-  for (const task of running) task.cancel()
+  cancelJob(job)
   event('WARN', `已取消${job.kind === 'pull' ? '拉取' : '推送'}，${running.length} 个传输中断`)
   return c.json({ cancelled: running.length })
 })

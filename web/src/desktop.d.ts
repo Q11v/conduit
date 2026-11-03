@@ -1,5 +1,6 @@
 interface Window {
   desktop: {
+    platform: string
     pathForFile(file: File): string | null
     stat(path: string): Promise<{ size: number; dir: boolean } | null>
     pick(opts?: { dir?: boolean; defaultPath?: string }): Promise<string | null>

@@ -49,6 +49,7 @@ export interface JobTarget {
   error?: string | null
   remoteDir?: string
   localPath?: string
+  waiting?: string | null
 }
 
 export interface JobSnapshot {
@@ -57,6 +58,12 @@ export interface JobSnapshot {
   sourceName: string
   size: number | null
   localDir?: string
+  presetId?: string | null
+  title?: string | null
+  createdAt?: string
+  revision: number
+  connectionError?: string
+  actionError?: string
   targets: JobTarget[]
   done: boolean
 }

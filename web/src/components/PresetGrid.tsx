@@ -3,12 +3,14 @@ import { Doc, Files, Folder, Grip, Trash } from './Icons'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import { Btn, IconBtn, SectionHeader } from './ui'
 import { formatLastRun } from '../api'
-import type { Preset, PullPreset, PushPreset, Server } from '../types'
+import type { JobSnapshot, Preset, PullPreset, PushPreset, Server } from '../types'
 
 interface Props<P extends Preset> {
   kind: P['kind']
   loaded: boolean
   presets: P[]
+  jobs: JobSnapshot[]
+  busyPresets: Set<string>
   servers: Server[]
   applied: string | null
   onApply: (p: P, run: boolean) => void
@@ -223,6 +225,7 @@ const Row = ({ label, children }: { label: string; children: React.ReactNode }) 
 )
 
 interface DragProps {
+  disabled?: boolean
   dragging: boolean
   onGrab: (on: boolean) => void
   onMove: (delta: -1 | 1) => void
@@ -237,6 +240,8 @@ function Card({
   runLabel,
   never,
   active,
+  job,
+  busy,
   drag,
   onApply,
   onDelete
@@ -248,6 +253,8 @@ function Card({
   runLabel: string
   never: string
   active: boolean
+  job?: JobSnapshot
+  busy: boolean
   drag: DragProps
   onApply: (run: boolean) => void
   onDelete: () => void
@@ -257,7 +264,7 @@ function Card({
     <div
       {...drag.cardProps}
       style={hue === null ? undefined : { boxShadow: `inset 3px 0 0 hsl(${hue} 75% 62%)` }}
-      className={`group/card flex flex-col gap-3 min-w-0 p-4 border rounded-[14px] transition-[colors,opacity] duration-150 ${
+      className={`group/card flex flex-col gap-2 min-w-0 px-4 py-3 border rounded-[14px] transition-[colors,opacity] duration-150 ${
         active
           ? 'border-[rgba(124,124,245,.45)] bg-[rgba(124,124,245,.1)]'
           : 'border-[rgba(255,255,255,.08)] panel hover:border-[rgba(255,255,255,.16)]'
@@ -266,7 +273,8 @@ function Card({
       <div className="flex items-center gap-3 flex-wrap">
         <button
           type="button"
-          title="拖动排序（Alt + ↑/↓）"
+          title={drag.disabled ? '清除搜索后可调整顺序' : '拖动排序（Alt + ↑/↓）'}
+          disabled={drag.disabled}
           aria-label={`调整「${p.name}」的位置`}
           onMouseDown={() => drag.onGrab(true)}
           onMouseUp={() => drag.onGrab(false)}
@@ -276,7 +284,7 @@ function Card({
             drag.onMove(e.key === 'ArrowUp' ? -1 : 1)
           }}
           style={hue === null ? undefined : { background: `hsl(${hue} 70% 60% / .16)`, color: `hsl(${hue} 85% 76%)` }}
-          className="relative flex shrink-0 items-center justify-center w-[26px] h-[26px] rounded-lg bg-[rgba(124,124,245,.16)] text-violet-text cursor-grab active:cursor-grabbing"
+          className="relative flex shrink-0 items-center justify-center w-[26px] h-[26px] rounded-lg bg-[rgba(124,124,245,.16)] text-violet-text cursor-grab active:cursor-grabbing disabled:cursor-default"
         >
           <span className="group-hover/card:opacity-0 transition-opacity duration-150">
             <Doc />
@@ -288,7 +296,7 @@ function Card({
 
         <div className="flex-1 min-w-[10rem] flex items-center gap-2.5 flex-wrap">
           <span className="text-[13.5px] font-semibold truncate max-w-full">{p.name}</span>
-          {group && hue !== null && (
+          {group && hue !== null && !p.name.toLowerCase().includes(group.toLowerCase()) && (
             <span
               style={{ background: `hsl(${hue} 70% 60% / .14)`, color: `hsl(${hue} 85% 76%)` }}
               className="shrink-0 px-2 py-px rounded-md font-mono text-[11.5px]"
@@ -303,9 +311,7 @@ function Card({
               {summary.source}
             </span>
           )}
-          <span className="shrink-0 px-2.5 py-0.5 rounded-full bg-[rgba(255,255,255,.07)] text-[12px] text-fg-dim">
-            {summary.count}
-          </span>
+          <span className="shrink-0 text-[12px] text-mute">{summary.count}</span>
           <span className="shrink-0 text-[12px] text-mute-3">{formatLastRun(p.lastRun, never)}</span>
           {duplicate && (
             <span
@@ -323,11 +329,11 @@ function Card({
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
-          <Btn onClick={() => onApply(false)} className="px-4 py-1.5 text-xs">
-            载入
+          <Btn onClick={() => onApply(false)} title="填入上方表单，检查或调整后再执行" className="px-3 py-1.5 text-xs">
+            {active ? '已载入' : '填入表单'}
           </Btn>
-          <Btn variant="primary" onClick={() => onApply(true)} className="px-4 py-1.5 text-xs">
-            {runLabel}
+          <Btn variant="primary" disabled={busy} onClick={() => onApply(true)} className="px-4 py-1.5 text-xs">
+            {busy ? (job?.targets.some(t => t.status === 'running') ? '传输中…' : '等待中…') : runLabel}
           </Btn>
           <IconBtn
             onClick={onDelete}
@@ -340,7 +346,17 @@ function Card({
         </div>
       </div>
 
-      <div className="flex flex-col gap-1.5">
+      {job?.done && (
+        <div
+          className={`text-[12px] ${job.targets.some(t => t.status === 'error') ? 'text-warn-text' : 'text-ok-text'}`}
+        >
+          {job.targets.every(t => t.status === 'done')
+            ? '上次任务已完成'
+            : `上次任务：${job.targets.filter(t => t.status === 'done').length} 成功，${job.targets.filter(t => t.status === 'error' && t.error !== '已取消').length} 失败，${job.targets.filter(t => t.error === '已取消').length} 已取消`}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-1">
         {summary.rows.map(([label, value]) => (
           <Row key={label} label={label}>
             {value}
@@ -371,6 +387,8 @@ export function PresetGrid<P extends Preset>({
   kind,
   loaded,
   presets,
+  jobs,
+  busyPresets,
   servers,
   applied,
   onApply,
@@ -378,6 +396,7 @@ export function PresetGrid<P extends Preset>({
   onReorder
 }: Props<P>) {
   const copy = COPY[kind]
+  const [query, setQuery] = useState('')
 
   // 拖动中的临时顺序；松手才提交
   const [dragOrder, setDragOrder] = useState<string[] | null>(null)
@@ -403,6 +422,14 @@ export function PresetGrid<P extends Preset>({
   const groupOf = new Map([...meta].map(([id, m]) => [id, m.group]))
   const clustered = clusterByGroup(ids, groupOf)
   const canCluster = clustered.some((id, i) => id !== ids[i])
+  const search = query.trim().toLowerCase()
+  const shown = ordered.filter(p => {
+    if (!search) return true
+    const related = p.kind === 'push' ? p.targets.map(t => t.serverId) : [p.serverId]
+    const hosts = servers.filter(s => related.includes(s.id)).map(s => `${s.name} ${s.host} ${s.tags.join(' ')}`)
+    const paths = p.kind === 'push' ? [p.src, ...p.targets.map(t => t.dir ?? ''), ...p.adhoc] : [...p.paths, p.localDir]
+    return [p.name, ...hosts, ...paths].join(' ').toLowerCase().includes(search)
+  })
 
   const finishDrag = () => {
     if (dragOrder && dragOrder.some((id, i) => id !== ids[i])) onReorder(dragOrder)
@@ -455,6 +482,22 @@ export function PresetGrid<P extends Preset>({
         }
       />
 
+      {presets.length > 0 && (
+        <div className="flex items-center gap-3 mb-3">
+          <input
+            type="search"
+            aria-label="搜索方案"
+            placeholder="搜索方案、服务器或路径…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            className="w-full max-w-[320px] h-8 px-3 rounded-lg border hair-2 sunken text-[12px] text-fg"
+          />
+          <span className="shrink-0 text-[12px] text-mute-3" role="status">
+            {search ? `${shown.length} / ${presets.length} 个方案` : `${presets.length} 个方案`}
+          </span>
+        </div>
+      )}
+
       {!loaded ? (
         <div className="px-5 py-8 border border-dashed border-[rgba(255,255,255,.08)] rounded-2xl text-center text-[13px] text-mute-4">
           载入中…
@@ -464,16 +507,30 @@ export function PresetGrid<P extends Preset>({
           <p className="m-0 text-[13px] leading-relaxed text-mute-2">{copy.empty}</p>
         </div>
       ) : (
-        <div className="flex flex-col gap-2.5">
-          {ordered.map(p => (
+        <div className="flex flex-col gap-2">
+          {shown.length === 0 && (
+            <div className="py-8 text-center text-[13px] text-mute">
+              <p className="m-0 mb-2">没有匹配的方案</p>
+              <button type="button" onClick={() => setQuery('')} className="text-violet-text cursor-pointer">
+                清除搜索
+              </button>
+            </div>
+          )}
+          {shown.map(p => (
             <Card
               key={p.id}
               p={p}
               {...meta.get(p.id)!}
-              drag={dragFor(p.id)}
-              runLabel={copy.run}
+              drag={{
+                ...dragFor(p.id),
+                disabled: !!search,
+                cardProps: { ...dragFor(p.id).cardProps, draggable: !search && grabbed === p.id }
+              }}
+              runLabel={p.kind === 'push' && !p.src.trim() ? '选来源并推送' : copy.run}
               never={copy.never}
               active={applied === p.id}
+              job={[...jobs].reverse().find(j => j.presetId === p.id)}
+              busy={busyPresets.has(p.id)}
               onApply={run => onApply(p, run)}
               onDelete={() => onDelete(p.id)}
             />

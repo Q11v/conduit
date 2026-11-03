@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme } from 'electron'
 import { execFileSync } from 'node:child_process'
 import { stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -35,6 +35,7 @@ function createWindow() {
     minHeight: 560,
     backgroundColor: '#08080c',
     title: 'conduit',
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 18 } } : {}),
     webPreferences: { preload: join(HERE, 'preload.cjs') }
   })
   win.webContents.setWindowOpenHandler(({ url: target }) => {
@@ -99,6 +100,8 @@ ipcMain.handle('conduit:confirm', async (_e, { message, detail, action }) => {
 app
   .whenReady()
   .then(async () => {
+    // Match native window chrome and dialogs to the app's dark interface.
+    nativeTheme.themeSource = 'dark'
     if (!app.isPackaged) app.dock?.setIcon(join(HERE, '..', 'build', 'icon.png'))
     inheritShellEnv()
     const { start } = await import('../server/index.js')

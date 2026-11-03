@@ -21,6 +21,21 @@ export function parseTarget(raw) {
   return { spec, host, dir }
 }
 
+export function sshEndpoint(host, port, configText) {
+  const alias = host.split('@').pop().toLowerCase()
+  try {
+    const text = configText ?? readFileSync(join(homedir(), '.ssh', 'config'), 'utf8')
+    const config = SSHConfig.parse(text).compute(alias, { ignoreCase: true, matchExec: false })
+    const hostname = String(config.hostname || alias)
+      .replaceAll('%h', alias)
+      .replaceAll('%n', alias)
+      .toLowerCase()
+    return `${hostname}:${port || config.port || 22}`
+  } catch {
+    return `${alias}:${port || 22}`
+  }
+}
+
 export function cleanPullPaths(raw) {
   const list = [...new Set((Array.isArray(raw) ? raw : []).map(p => String(p ?? '').trim()).filter(Boolean))]
   if (list.length === 0) throw new Error('至少选一个远端路径')

@@ -38,8 +38,11 @@ function Row({ e }: { e: ActivityEvent }) {
         onClick={e.detail ? () => setOpen(v => !v) : undefined}
         className={`flex items-start gap-3 px-4 py-[11px] ${e.detail ? 'cursor-pointer hover:bg-[rgba(255,255,255,.025)]' : ''}`}
       >
-        <span className="shrink-0 w-[66px] font-mono text-[12px] leading-[19px] text-mute-4" title={e.t}>
-          {day && <span className="block text-mute-4">{day}</span>}
+        <span
+          className="shrink-0 w-[112px] whitespace-nowrap font-mono text-[12px] leading-[19px] text-mute-4 tabular-nums"
+          title={e.t}
+        >
+          {day && `${day} `}
           {time}
         </span>
         <span
@@ -57,7 +60,7 @@ function Row({ e }: { e: ActivityEvent }) {
         )}
       </div>
       {open && e.detail && (
-        <div className="relative mx-4 mb-3 ml-[147px] rounded-lg bg-[rgba(0,0,0,.35)] border hair">
+        <div className="relative mx-4 mb-3 ml-[206px] rounded-lg bg-[rgba(0,0,0,.35)] border hair">
           <IconBtn
             onClick={() => void navigator.clipboard.writeText(e.detail ?? '')}
             title="复制"

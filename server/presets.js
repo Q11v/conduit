@@ -84,35 +84,50 @@ function clean(input) {
   return { name, kind: 'push', src, targets, adhoc }
 }
 
-export async function addPreset(input) {
-  const list = await loadPresets()
-  const preset = { id: randomUUID(), ...clean(input), lastRun: null }
-  list.push(preset)
-  await persist(list)
-  return preset
+let pendingWrite = Promise.resolve()
+function mutate(change) {
+  const operation = pendingWrite.then(async () => {
+    const list = await loadPresets()
+    const result = change(list)
+    await persist(list)
+    return result
+  })
+  pendingWrite = operation.catch(() => {})
+  return operation
 }
 
-export async function removePreset(id) {
-  const list = await loadPresets()
-  if (!list.some(p => p.id === id)) throw new Error('方案不存在')
-  await persist(list.filter(p => p.id !== id))
+export function addPreset(input) {
+  return mutate(list => {
+    const preset = { id: randomUUID(), ...clean(input), lastRun: null }
+    list.push(preset)
+    return preset
+  })
 }
 
-export async function touchPreset(id) {
-  const list = await loadPresets()
-  const i = list.findIndex(p => p.id === id)
-  if (i === -1) return
-  list[i] = { ...list[i], lastRun: new Date().toISOString() }
-  await persist(list)
+export function removePreset(id) {
+  return mutate(list => {
+    const index = list.findIndex(p => p.id === id)
+    if (index < 0) throw new Error('方案不存在')
+    list.splice(index, 1)
+  })
+}
+
+export function touchPreset(id) {
+  return mutate(list => {
+    const preset = list.find(p => p.id === id)
+    if (preset) preset.lastRun = new Date().toISOString()
+  })
 }
 
 // 只重排给出的这些 id：它们原来占的位置按新顺序填回去，推送/拉取两类互不影响
-export async function reorderPresets(ids) {
-  if (!Array.isArray(ids)) throw new Error('ids 必须是数组')
-  const list = await loadPresets()
-  const byId = new Map(list.map(p => [p.id, p]))
-  const order = [...new Set(ids)].filter(id => byId.has(id))
-  const wanted = new Set(order)
-  let k = 0
-  await persist(list.map(p => (wanted.has(p.id) ? byId.get(order[k++]) : p)))
+export function reorderPresets(ids) {
+  return mutate(list => {
+    if (!Array.isArray(ids)) throw new Error('ids 必须是数组')
+    const byId = new Map(list.map(p => [p.id, p]))
+    const order = [...new Set(ids)].filter(id => byId.has(id))
+    const wanted = new Set(order)
+    let k = 0
+    const reordered = list.map(p => (wanted.has(p.id) ? byId.get(order[k++]) : p))
+    list.splice(0, list.length, ...reordered)
+  })
 }

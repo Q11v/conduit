@@ -10,6 +10,7 @@ import type { Status } from '../useConduit'
 interface Props {
   src: string
   size: number | null
+  sourceMissing: boolean
   onSrc: (v: string) => void
   onPick: () => void
   onDrop: (f: File) => void
@@ -87,7 +88,9 @@ export function PushCard(p: Props) {
             className={`relative flex items-center gap-3 px-3.5 py-2.5 border rounded-xl overflow-hidden transition-all duration-150 ${
               over
                 ? 'border-dashed border-[rgba(124,124,245,.7)] bg-[rgba(124,124,245,.08)]'
-                : 'field-edge sunken focus-within:border-[rgba(124,124,245,.7)]'
+                : p.sourceMissing
+                  ? 'border-err sunken'
+                  : 'field-edge sunken focus-within:border-[rgba(124,124,245,.7)]'
             }`}
           >
             <FileIcon size={17} className="shrink-0 text-mute-3" />
@@ -102,6 +105,9 @@ export function PushCard(p: Props) {
                 {p.size != null && <Pill>{formatSize(p.size)}</Pill>}
               </div>
               <input
+                aria-label="本地来源路径"
+                aria-invalid={p.sourceMissing}
+                aria-describedby={p.sourceMissing ? 'source-error' : undefined}
                 value={p.src}
                 onChange={e => p.onSrc(e.target.value)}
                 placeholder="/Users/you/dist/app-1.2.0.tar.gz"
@@ -126,6 +132,11 @@ export function PushCard(p: Props) {
               </div>
             )}
           </div>
+          {p.sourceMissing && (
+            <p id="source-error" role="status" className="m-0 mt-1.5 text-[12px] text-err-text">
+              文件或目录不存在，或无法读取。请重新选择来源。
+            </p>
+          )}
         </div>
 
         <span className="hidden md:flex items-center h-[58px] mt-7 text-mute-4">→</span>

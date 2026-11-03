@@ -70,12 +70,14 @@ export const checkDraft = (d: ServerDraft) => request<CheckVerdict>('/api/check'
 export type TargetRef = { serverId: string; dir: string } | string
 
 export const startJob = (source: string, targets: TargetRef[], presetId?: string, verify = false) =>
-  request<{ id: string }>('/api/jobs', { source, targets, presetId, verify })
+  request<{ id: string; job: JobSnapshot }>('/api/jobs', { source, targets, presetId, verify })
 
 export const browse = (serverId: string, path: string) => request<Listing>('/api/browse', { serverId, path })
 
 export const startPull = (serverId: string, paths: string[], localDir: string, presetId?: string) =>
-  request<{ id: string }>('/api/pulls', { serverId, paths, localDir, presetId })
+  request<{ id: string; job: JobSnapshot }>('/api/pulls', { serverId, paths, localDir, presetId })
+
+export const getJobs = () => request<{ jobs: JobSnapshot[] }>('/api/jobs', undefined, 'GET')
 
 export const cancelJob = (id: string) => request<{ cancelled: number }>(`/api/jobs/${id}/cancel`)
 
@@ -89,17 +91,20 @@ export const reorderPresets = (ids: string[]) => request<{ ok: true }>('/api/pre
 
 export const deletePreset = (id: string) => request<{ ok: true }>(`/api/presets/${id}`, undefined, 'DELETE')
 
-export const retryJob = (id: string) => request<{ retrying: string[] }>(`/api/jobs/${id}/retry`)
+export const retryJob = (id: string) => request<{ retrying: string[]; job: JobSnapshot }>(`/api/jobs/${id}/retry`)
 
-export function subscribe(jobId: string, onSnapshot: (job: JobSnapshot) => void, onError: () => void): () => void {
-  const es = new EventSource(`/api/jobs/${jobId}/events`)
+export function subscribeJobs(
+  onSnapshot: (job: JobSnapshot) => void,
+  onError: () => void,
+  onOpen: () => void
+): () => void {
+  const es = new EventSource('/api/jobs/events')
+  es.onopen = onOpen
   es.onmessage = e => {
     const job: JobSnapshot = JSON.parse(e.data)
     onSnapshot(job)
-    if (job.done) es.close()
   }
   es.onerror = () => {
-    es.close()
     onError()
   }
   return () => es.close()

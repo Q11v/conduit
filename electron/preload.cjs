@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 contextBridge.exposeInMainWorld('desktop', {
+  platform: process.platform,
   pathForFile: file => webUtils.getPathForFile(file) || null,
   stat: path => ipcRenderer.invoke('conduit:stat', path),
   pick: (opts = {}) => ipcRenderer.invoke('conduit:pick', opts),

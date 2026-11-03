@@ -11,8 +11,6 @@ interface Props {
   tags: string[]
   checks: Record<string, Check>
   probeOf: (serverId: string) => Probe
-  configPath: string
-  home: string
   onCheck: (id: string) => void
   onCheckAll: () => void
   onEdit: (id: string) => void
@@ -186,13 +184,7 @@ export function ServersView(p: Props) {
 
   return (
     <div>
-      <Hero
-        eyebrow="ssh targets"
-        title="一处配置，推拉共用"
-        desc="主机和认证配一次，推送、拉取时直接选。目录在推送、拉取时按需填，常用的可以存下来。密码进钥匙串，配置只留在本机。"
-        path={p.configPath}
-        home={p.home}
-      />
+      <Hero eyebrow="ssh targets" title="一处配置，推拉共用" desc="统一管理主机和认证，推送、拉取时直接选用。" />
 
       <div className="flex items-center gap-x-3 gap-y-2 flex-wrap mb-4">
         <h2 className="m-0 shrink-0 text-[17px] font-bold tracking-[-0.01em]">服务器</h2>

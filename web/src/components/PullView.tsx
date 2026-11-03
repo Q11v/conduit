@@ -4,12 +4,14 @@ import { Btn, Chip, CountBadge, IconBtn, PrimaryAction, ProbeBadge, StatusLine, 
 import { Checkbox } from '@/components/ui/checkbox'
 import { Combobox } from '@/components/ui/combobox'
 import { Hero } from './Hero'
+import { PresetNotice } from './PresetNotice'
 import * as api from '../api'
 import { formatSize, why } from '../api'
 import type { Listing, Probe, Server } from '../types'
 import type { Status } from '../useConduit'
 
 interface Props {
+  presetName?: string
   loaded: boolean
   servers: Server[]
   server: Server | null
@@ -28,8 +30,6 @@ interface Props {
   onPull: () => void
   onSave: () => void
   onGoServers: () => void
-  presetsPath: string
-  home: string
 }
 
 const joinPath = (dir: string, name: string) => (dir === '/' ? `/${name}` : `${dir}/${name}`)
@@ -92,13 +92,14 @@ export function PullView(p: Props) {
   }
 
   const header = (
-    <Hero
-      eyebrow="remote to local"
-      title="从服务器拉回本机"
-      desc="浏览远端目录，勾好文件或目录，一次拉到本地。和推送走同一条 SSH + rsync。"
-      path={p.presetsPath}
-      home={p.home}
-    />
+    <>
+      <Hero
+        eyebrow="remote to local"
+        title="从服务器拉回本机"
+        desc="浏览远端目录，勾选文件或目录，通过 SSH 拉回本机。"
+      />
+      <PresetNotice name={p.presetName} />
+    </>
   )
 
   if (!p.loaded) {

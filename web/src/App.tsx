@@ -1,8 +1,8 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { TopBar } from './components/TopBar'
 import { Footer } from './components/Footer'
 import { PushCard } from './components/PushCard'
-import { PushProgress } from './components/PushProgress'
+import { TaskCenter } from './components/TaskCenter'
 import { PresetGrid } from './components/PresetGrid'
 import { PullView } from './components/PullView'
 import { ActivityView } from './components/ActivityView'
@@ -10,10 +10,25 @@ import { ServersView } from './components/ServersView'
 import { ServerFormModal } from './components/ServerFormModal'
 import { SavePresetModal } from './components/SavePresetModal'
 import { Hero } from './components/Hero'
+import { PresetNotice } from './components/PresetNotice'
 import { useConduit } from './useConduit'
 
 export default function App() {
   const c = useConduit()
+  const { setView } = c
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const modifier = window.desktop?.platform === 'darwin' ? e.metaKey : e.ctrlKey
+      if (!modifier || e.altKey || e.shiftKey || e.repeat || document.querySelector('[role="dialog"]')) return
+      const view = ({ '1': 'servers', '2': 'push', '3': 'pull' } as const)[e.key as '1' | '2' | '3']
+      if (!view) return
+      e.preventDefault()
+      setView(view)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [setView])
 
   const pushName = c.src.split('/').filter(Boolean).pop() || ''
   const pushLabels = [...c.selected.map(t => `${t.server.name}:${t.dir}`), ...c.adhocTargets]
@@ -60,19 +75,19 @@ export default function App() {
 
       <TopBar view={c.view} onView={c.setView} />
 
-      <div className="relative flex-1 w-full max-w-[1000px] mx-auto px-5 pt-11 pb-16">
+      <div className="relative flex-1 w-full max-w-[1000px] mx-auto px-5 pt-7 pb-36">
         {c.view === 'push' && (
           <div>
             <Hero
               eyebrow="local-first deploy"
               title="一次推送到多台服务器"
-              desc="选一个本地文件或目录，勾好目标，剩下的交给 SSH。密钥与配置只留在本机。"
-              path={c.hosts?.presetsPath ?? ''}
-              home={c.hosts?.home ?? ''}
+              desc="选择本地文件或目录，勾选目标，通过 SSH 推送。"
             />
+            <PresetNotice name={c.pushPresets.find(p => p.id === c.appliedPreset)?.name} />
             <PushCard
               src={c.src}
               size={c.size}
+              sourceMissing={c.sourceMissing}
               onSrc={c.setSrc}
               onPick={c.pickSource}
               onDrop={c.dropFile}
@@ -93,8 +108,8 @@ export default function App() {
               onAdhoc={c.setAdhoc}
               onGoServers={() => c.setView('servers')}
               status={c.statusText}
-              ready={c.ready && c.busy === null}
-              busy={c.busy === 'push'}
+              ready={c.ready && !c.pushBusy}
+              busy={c.pushBusy}
               verify={c.verify}
               onToggleVerify={c.toggleVerify}
               onPush={c.push}
@@ -104,9 +119,14 @@ export default function App() {
               kind="push"
               loaded={c.loaded}
               presets={c.pushPresets}
+              jobs={c.jobs}
+              busyPresets={c.busyPresets}
               servers={c.servers}
               applied={c.appliedPreset}
-              onApply={c.applyPreset}
+              onApply={(preset, run) => {
+                void c.applyPreset(preset, run)
+                if (!run) window.scrollTo({ top: 0, behavior: 'smooth' })
+              }}
               onDelete={c.removePreset}
               onReorder={c.reorderPresets}
             />
@@ -115,6 +135,7 @@ export default function App() {
 
         {c.view === 'pull' && (
           <PullView
+            presetName={c.pullPresets.find(p => p.id === c.appliedPullPreset)?.name}
             loaded={c.loaded}
             servers={c.servers}
             server={c.pullServer}
@@ -128,13 +149,11 @@ export default function App() {
             onPickLocalDir={c.pickPullDir}
             onPinDir={dir => c.pullServer && c.pinPath(c.pullServer.id, dir, 'pull')}
             status={c.pullStatusText}
-            ready={c.pullReady && c.busy === null}
-            busy={c.busy === 'pull'}
+            ready={c.pullReady && !c.pullBusy}
+            busy={c.pullBusy}
             onPull={c.pull}
             onSave={() => c.openSave('pull')}
             onGoServers={() => c.setView('servers')}
-            presetsPath={c.hosts?.presetsPath ?? ''}
-            home={c.hosts?.home ?? ''}
           />
         )}
         {c.view === 'pull' && c.loaded && (
@@ -142,9 +161,14 @@ export default function App() {
             kind="pull"
             loaded={c.loaded}
             presets={c.pullPresets}
+            jobs={c.jobs}
+            busyPresets={c.busyPresets}
             servers={c.servers}
             applied={c.appliedPullPreset}
-            onApply={c.applyPullPreset}
+            onApply={(preset, run) => {
+              void c.applyPullPreset(preset, run)
+              if (!run) window.scrollTo({ top: 0, behavior: 'smooth' })
+            }}
             onDelete={c.removePreset}
             onReorder={c.reorderPresets}
           />
@@ -157,8 +181,6 @@ export default function App() {
             tags={c.tags}
             checks={c.checks}
             probeOf={c.probeOf}
-            configPath={c.hosts?.configPath ?? ''}
-            home={c.hosts?.home ?? ''}
             onCheck={c.check}
             onCheckAll={c.checkAll}
             onEdit={c.openEdit}
@@ -177,17 +199,17 @@ export default function App() {
         )}
       </div>
 
-      <Footer />
+      <Footer hosts={c.hosts} />
 
-      {c.job && (
-        <PushProgress
-          job={c.job}
-          onDismiss={c.dismissJob}
-          onCancel={c.cancelJob}
-          onRetry={c.retry}
-          onReveal={c.job.kind === 'pull' ? c.revealJob : undefined}
-        />
-      )}
+      <TaskCenter
+        jobs={c.jobs}
+        pending={c.pendingTasks}
+        parallel={c.hosts?.parallel ?? 4}
+        onDismiss={c.dismissJob}
+        onCancel={c.cancelJob}
+        onRetry={c.retry}
+        onReveal={c.revealJob}
+      />
 
       <SavePresetModal
         open={c.saveOpen}

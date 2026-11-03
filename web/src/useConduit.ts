@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as api from './api'
 import { why } from './api'
 import type {
@@ -6,7 +6,6 @@ import type {
   Check,
   HostsInfo,
   JobKind,
-  JobSnapshot,
   Preset,
   Probe,
   PullPreset,
@@ -16,6 +15,7 @@ import type {
   ServerDraft
 } from './types'
 import { emptyDraft, splitKey, targetKey } from './types'
+import { useJobs } from './useJobs'
 
 export type View = 'push' | 'pull' | 'log' | 'servers'
 export type FormMode = 'new' | (string & {}) | null
@@ -69,7 +69,15 @@ export function useConduit() {
   const [formMsg, setFormMsg] = useState<Status | null>(null)
 
   const [src, setSrc] = useState('')
-  const [size, setSize] = useState<number | null>(null)
+  const [sourceCheck, setSourceCheck] = useState<{
+    path: string
+    info: { size: number; dir: boolean } | null
+  } | null>(null)
+  const [sourceRevision, setSourceRevision] = useState(0)
+  const checkedSource = sourceCheck?.path === src.trim() ? sourceCheck : null
+  const sourceMissing = checkedSource !== null && checkedSource.info === null
+  const checkingSource = src.trim().length > 0 && checkedSource === null
+  const size = checkedSource?.info && !checkedSource.info.dir ? checkedSource.info.size : null
   const [adhoc, setAdhoc] = useState('')
 
   const [presets, setPresets] = useState<Preset[]>([])
@@ -91,11 +99,7 @@ export function useConduit() {
   const [recentDirs, setRecentDirs] = useState(loadRecentDirs)
   const [pullStatus, setPullStatus] = useState<Status | null>(null)
 
-  const [job, setJob] = useState<JobSnapshot | null>(null)
-  const [busy, setBusy] = useState<JobKind | null>(null)
   const [status, setStatus] = useState<Status | null>(null)
-  const jobIdRef = useRef<string | null>(null)
-  const unsubRef = useRef<(() => void) | null>(null)
 
   const reloadServers = useCallback(async () => {
     const r = await api.getServers()
@@ -107,6 +111,22 @@ export function useConduit() {
     if (r.ok && r.presets) setPresets(r.presets)
   }, [])
 
+  const tasks = useJobs(reloadPresets)
+  const busyPresets = useMemo(
+    () =>
+      new Set([
+        ...tasks.jobs.filter(j => !j.done && j.presetId).map(j => j.presetId!),
+        ...[...tasks.pending].filter(key => key.startsWith('preset:')).map(key => key.slice(7))
+      ]),
+    [tasks.jobs, tasks.pending]
+  )
+  const pushBusy =
+    tasks.pending.has(appliedPreset ? `preset:${appliedPreset}` : 'push-form') ||
+    (!!appliedPreset && busyPresets.has(appliedPreset))
+  const pullBusy =
+    tasks.pending.has(appliedPullPreset ? `preset:${appliedPullPreset}` : 'pull-form') ||
+    (!!appliedPullPreset && busyPresets.has(appliedPullPreset))
+
   useEffect(() => {
     void Promise.all([reloadServers(), reloadPresets()]).then(() => setLoaded(true))
   }, [reloadServers, reloadPresets])
@@ -115,7 +135,21 @@ export function useConduit() {
       if (r.ok) setHosts(r as HostsInfo)
     })
   }, [])
-  useEffect(() => () => unsubRef.current?.(), [])
+  useEffect(() => {
+    const path = src.trim()
+    if (!path) return
+    let alive = true
+    const timer = setTimeout(() => {
+      void window.desktop.stat(path).then(
+        info => alive && setSourceCheck({ path, info }),
+        () => alive && setSourceCheck({ path, info: null })
+      )
+    }, 180)
+    return () => {
+      alive = false
+      clearTimeout(timer)
+    }
+  }, [src, sourceRevision])
   useEffect(() => {
     try {
       localStorage.setItem(VIEW_KEY, view)
@@ -340,29 +374,31 @@ export function useConduit() {
     [servers, form, closeForm, reloadServers]
   )
 
-  const applySource = useCallback(async (path: string) => {
+  const applySource = useCallback((path: string) => {
     setStatus(null)
     setSrc(path)
-    const info = await window.desktop.stat(path)
-    setSize(info && !info.dir ? info.size : null)
+    setSourceCheck(null)
+    setSourceRevision(v => v + 1)
   }, [])
 
   const pickSource = useCallback(async () => {
     const path = await window.desktop.pick({ defaultPath: src.trim() || undefined })
-    if (path) await applySource(path)
+    if (path) applySource(path)
   }, [src, applySource])
 
   const dropFile = useCallback(
     (file: File) => {
       const path = window.desktop.pathForFile(file)
-      if (path) void applySource(path)
+      if (path) applySource(path)
     },
     [applySource]
   )
 
   const typeSrc = useCallback((v: string) => {
     setSrc(v)
-    setSize(null)
+    setSourceCheck(null)
+    setSourceRevision(v => v + 1)
+    setStatus(null)
   }, [])
 
   const adhocTargets = useMemo(
@@ -374,66 +410,34 @@ export function useConduit() {
     [adhoc]
   )
 
-  const ready = src.trim().length > 0 && selected.length + adhocTargets.length > 0
+  const ready = src.trim().length > 0 && !checkingSource && !sourceMissing && selected.length + adhocTargets.length > 0
 
-  const listen = useCallback(
-    (id: string, kind: JobKind) => {
-      const report = reportTo(kind)
-      unsubRef.current?.()
-      unsubRef.current = api.subscribe(
-        id,
-        snap => {
-          setJob(snap)
-          if (!snap.done) return
-          setBusy(null)
-          void reloadPresets()
-          const cancelled = snap.targets.filter(t => t.error === '已取消').length
-          const bad = snap.targets.filter(t => t.status === 'error').length - cancelled
-          const ok = snap.targets.length - bad - cancelled
-          if (!bad && !cancelled) {
-            report({ text: `全部完成 · ${ok} ${kind === 'pull' ? '项' : '个目标'}`, bad: false })
-          } else {
-            const parts: string[] = []
-            if (ok) parts.push(`${ok} 成功`)
-            if (bad) parts.push(`${bad} 失败`)
-            if (cancelled) parts.push(`${cancelled} 已取消`)
-            report({ text: parts.join('，'), bad: bad > 0 })
-          }
-        },
-        () => {
-          setBusy(null)
-          report({ text: '连接中断', bad: true })
-        }
-      )
-    },
-    [reloadPresets]
-  )
-
+  const { launch } = tasks
   const runPush = useCallback(
     async (source: string, targets: api.TargetRef[], presetId?: string) => {
-      if (!source.trim() || targets.length === 0) return
-      if (busy) return setStatus({ text: '还有任务在进行中，等它结束或取消后再推', bad: true })
-      setBusy('push')
-      setStatus({ text: '启动中…', bad: false })
-      const r = await api.startJob(source.trim(), targets, presetId, verify)
-      if (!r.ok || !r.id) {
-        setBusy(null)
-        return setStatus({ text: why(r), bad: true })
-      }
-      jobIdRef.current = r.id
-      listen(r.id, 'push')
+      if (targets.length === 0) return setStatus({ text: '至少选择一个有效目标', bad: true })
+      const r = await launch(presetId ? `preset:${presetId}` : 'push-form', async () => {
+        const chosen = source.trim() || (await window.desktop.pick())
+        if (!chosen) return { ok: false, error: '已取消选择来源' }
+        if (!source.trim()) applySource(chosen)
+        const info = await window.desktop.stat(chosen).catch(() => null)
+        if (!info) return { ok: false, error: '来源不存在或无法读取，请重新选择来源' }
+        return api.startJob(chosen, targets, presetId, verify)
+      })
+      if (!r.ok && why(r) === '已取消选择来源') return setStatus(null)
+      setStatus(r.ok ? { text: '任务已加入任务中心', bad: false } : { text: why(r), bad: true })
     },
-    [listen, verify, busy]
+    [launch, verify, applySource]
   )
 
   const push = useCallback(() => {
-    if (!ready || busy) return
+    if (!ready || pushBusy) return
     void runPush(
       src,
       [...selected.map(t => ({ serverId: t.server.id, dir: t.dir })), ...adhocTargets],
       appliedPreset ?? undefined
     )
-  }, [ready, busy, src, selected, adhocTargets, appliedPreset, runPush])
+  }, [ready, pushBusy, src, selected, adhocTargets, appliedPreset, runPush])
 
   const applyPreset = useCallback(
     async (p: PushPreset, run: boolean) => {
@@ -448,14 +452,12 @@ export function useConduit() {
       setSel(new Set(live.map(t => targetKey(t.serverId, t.dir))))
       setAdhoc(p.adhoc.join('\n'))
       setSrc(p.src)
-      setSize(null)
+      setSourceCheck(null)
+      setSourceRevision(v => v + 1)
       setAppliedPreset(p.id)
       setView('push')
       setStatus(missing > 0 ? { text: `方案里有 ${missing} 个目标已失效（服务器被删），已跳过`, bad: true } : null)
       if (!run) return
-      if (!p.src.trim()) {
-        return setStatus({ text: '这个方案每次都要重新选来源', bad: true })
-      }
       await runPush(p.src, [...live, ...p.adhoc], p.id)
     },
     [servers, runPush]
@@ -512,14 +514,11 @@ export function useConduit() {
   const runPull = useCallback(
     async (serverId: string, paths: string[], localDir: string, presetId?: string) => {
       if (!serverId || paths.length === 0 || !localDir.trim()) return
-      if (busy) return setPullStatus({ text: '还有任务在进行中，等它结束或取消后再拉', bad: true })
-      setBusy('pull')
-      setPullStatus({ text: '启动中…', bad: false })
-      const r = await api.startPull(serverId, paths, localDir.trim(), presetId)
-      if (!r.ok || !r.id) {
-        setBusy(null)
-        return setPullStatus({ text: why(r), bad: true })
-      }
+      const r = await launch(presetId ? `preset:${presetId}` : 'pull-form', () =>
+        api.startPull(serverId, paths, localDir.trim(), presetId)
+      )
+      if (!r.ok) return setPullStatus({ text: why(r), bad: true })
+      setPullStatus({ text: '任务已加入任务中心', bad: false })
       const dir = localDir.trim().replace(/(.)\/+$/, '$1')
       const recent = [dir, ...loadRecentDirs().filter(d => d !== dir)].slice(0, 5)
       setRecentDirs(recent)
@@ -527,16 +526,14 @@ export function useConduit() {
         localStorage.setItem(PULL_DIR_KEY, dir)
         localStorage.setItem(RECENT_DIRS_KEY, JSON.stringify(recent))
       } catch {}
-      jobIdRef.current = r.id
-      listen(r.id, 'pull')
     },
-    [busy, listen]
+    [launch]
   )
 
   const pull = useCallback(() => {
-    if (!pullReady || !pullServer) return
+    if (!pullReady || !pullServer || pullBusy) return
     void runPull(pullServer.id, pullPaths, pullDir, appliedPullPreset ?? undefined)
-  }, [pullReady, pullServer, pullPaths, pullDir, appliedPullPreset, runPull])
+  }, [pullReady, pullBusy, pullServer, pullPaths, pullDir, appliedPullPreset, runPull])
 
   const applyPullPreset = useCallback(
     async (p: PullPreset, run: boolean) => {
@@ -591,54 +588,22 @@ export function useConduit() {
     return { text: `${pullServer.name} · ${pullPaths.length} 项 → ${pullDir.trim()}`, bad: false }
   }, [pullStatus, pullServer, pullPaths.length, pullDir])
 
-  const retry = useCallback(async () => {
-    const id = jobIdRef.current
-    if (!id || !job) return
-    const report = reportTo(job.kind)
-    setBusy(job.kind)
-    report({ text: '重试中…', bad: false })
-    const r = await api.retryJob(id)
-    if (!r.ok) {
-      setBusy(null)
-      return report({ text: why(r), bad: true })
-    }
-    listen(id, job.kind)
-  }, [listen, job])
-
-  const cancelJob = useCallback(async () => {
-    const id = jobIdRef.current
-    if (!id || !job) return
-    reportTo(job.kind)({ text: '正在取消…', bad: false })
-    await api.cancelJob(id)
-  }, [job])
-
-  const revealJob = useCallback(() => {
-    const paths = job?.targets.flatMap(t => (t.status === 'done' && t.localPath ? [t.localPath] : [])) ?? []
-    void window.desktop.reveal(paths)
-  }, [job])
-
   const pickPullDir = useCallback(async () => {
     const path = await window.desktop.pick({ dir: true, defaultPath: pullDir.trim() || undefined })
     if (path) setPullDir(path)
   }, [pullDir])
 
-  const dismissJob = useCallback(() => {
-    unsubRef.current?.()
-    unsubRef.current = null
-    setJob(null)
-  }, [])
-
-  const failedCount = job ? job.targets.filter(t => t.status === 'error').length : 0
-
   const statusText = useMemo<Status>(() => {
     if (status) return status
     const count = selected.length + adhocTargets.length
     if (!src.trim()) return { text: '先选择本地来源', bad: false }
+    if (checkingSource) return { text: '正在检查来源…', bad: false }
+    if (sourceMissing) return { text: '来源不存在或无法读取，请重新选择', bad: true }
     if (count === 0) return { text: '还没选目标', bad: false }
     const name = src.split('/').filter(Boolean).pop() || src
     const head = [name, size != null ? api.formatSize(size) : null].filter(Boolean).join(' · ')
     return { text: `${head} → ${count} 个目标`, bad: false }
-  }, [status, src, size, selected.length, adhocTargets.length])
+  }, [status, src, size, checkingSource, sourceMissing, selected.length, adhocTargets.length])
 
   return {
     view,
@@ -677,15 +642,18 @@ export function useConduit() {
     adhoc,
     setAdhoc,
     adhocTargets,
-    job,
-    busy,
+    jobs: tasks.jobs,
+    pendingTasks: tasks.pending,
+    busyPresets,
+    pushBusy,
+    pullBusy,
     ready,
+    sourceMissing,
     push,
-    retry,
-    dismissJob,
-    cancelJob,
-    revealJob,
-    failedCount,
+    retry: tasks.retry,
+    dismissJob: tasks.dismissJob,
+    cancelJob: tasks.cancelJob,
+    revealJob: tasks.revealJob,
     pullServer,
     choosePullServer,
     pullPaths,
