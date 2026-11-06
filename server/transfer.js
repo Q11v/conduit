@@ -1,3 +1,4 @@
+import { validateDeletePaths } from './file-actions.js'
 import { spawn } from 'node:child_process'
 import { stat, chmod, readdir, mkdir } from 'node:fs/promises'
 import { basename, join, dirname } from 'node:path'
@@ -343,9 +344,11 @@ export async function browseRemote(conn, path) {
     'echo "PWD=$(pwd)"',
     'echo ---',
     "if find . -maxdepth 0 -printf '' >/dev/null 2>&1; then " +
-      "find . -mindepth 1 -maxdepth 1 -printf '%Y\\t%s\\t%f\\n' 2>/dev/null; " +
-      'else for f in .* *; do case "$f" in .|..) continue ;; esac; [ -e "$f" ] || continue; ' +
-      `if [ -d "$f" ]; then printf 'd\\t\\t%s\\n' "$f"; else printf 'f\\t\\t%s\\n' "$f"; fi; done; fi | head -n ${BROWSE_LIMIT + 1}`
+      "find . -mindepth 1 -maxdepth 1 -printf '%Y\\t%s\\t%T@\\t%f\\n' 2>/dev/null; " +
+      'else for f in ./.* ./*; do case "$f" in ./.|./..) continue ;; esac; [ -e "$f" ] || continue; ' +
+      'if [ -d "$f" ]; then kind=d; else kind=f; fi; ' +
+      `meta=$(stat -Lf '%z %m' "$f" 2>/dev/null) || meta=$(stat -Lc '%s %Y' "$f" 2>/dev/null) || meta=''; ` +
+      `printf '%s\\t%s\\t%s\\t%s\\n' "$kind" "\${meta%% *}" "\${meta#* }" "\${f#./}"; done; fi | head -n ${BROWSE_LIMIT + 1}`
   ].join('\n')
 
   const { code, stdout, stderr } = await run('ssh', [...sshOpts(conn), conn.host, script], conn, `browse ${conn.host}`)
@@ -360,12 +363,19 @@ export async function browseRemote(conn, path) {
   for (const line of stdout.slice(sep + 5).split('\n')) {
     const a = line.indexOf('\t')
     const b = line.indexOf('\t', a + 1)
-    if (a === -1 || b === -1) continue
+    const c = line.indexOf('\t', b + 1)
+    if (a === -1 || b === -1 || c === -1) continue
     const kind = line.slice(0, a)
-    const name = line.slice(b + 1)
+    const name = line.slice(c + 1)
     if (!name || (kind !== 'd' && kind !== 'f')) continue
     const size = line.slice(a + 1, b)
-    entries.push({ name, type: kind === 'd' ? 'dir' : 'file', size: kind === 'f' && size ? Number(size) : null })
+    const modified = line.slice(b + 1, c)
+    entries.push({
+      name,
+      type: kind === 'd' ? 'dir' : 'file',
+      size: kind === 'f' && size && Number.isFinite(Number(size)) ? Number(size) : null,
+      modifiedAt: modified && Number.isFinite(Number(modified)) ? Number(modified) * 1000 : null
+    })
   }
   const truncated = entries.length > BROWSE_LIMIT
   entries.splice(BROWSE_LIMIT)
@@ -393,4 +403,18 @@ export async function checkTarget(conn) {
   const ok = code === 0 && /RSYNC=yes/.test(stdout)
   note(conn.trace, `check ${conn.host}`, `判定 ${ok ? 'OK' : 'FAIL'}: ${reason}`, !ok)
   return { ok, reason }
+}
+
+export async function deleteRemote(conn, directory, rawPaths) {
+  const paths = validateDeletePaths(directory, rawPaths)
+  // No trailing slash: deleting a symlink must never follow its target.
+  const { code, stderr } = await run(
+    'ssh',
+    [...sshOpts(conn), conn.host, `rm -r -- ${paths.map(shellQuote).join(' ')}`],
+    conn,
+    `delete ${conn.host}`
+  )
+  return code === 0
+    ? { ok: true, deleted: paths }
+    : { ok: false, deleted: [], reason: explain(stderr, code, conn.auth) }
 }

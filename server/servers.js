@@ -83,42 +83,65 @@ export async function withSecret(server) {
   return { ...server, password }
 }
 
-export async function addServer(input) {
-  const list = await loadServers()
-  const server = { id: randomUUID(), ...clean(input) }
-  if (server.auth === 'password') {
-    if (!input.password) throw new Error('选了密码认证就必须填密码')
-    await setPassword(server.id, input.password)
-  }
-  list.push(server)
-  await persist(list)
-  return server
+// Serialize configuration mutations so ordering never overwrites an edit or new server.
+let pendingWrite = Promise.resolve()
+function mutate(change) {
+  const operation = pendingWrite.then(async () => {
+    const list = await loadServers()
+    const result = await change(list)
+    await persist(list)
+    return result
+  })
+  pendingWrite = operation.catch(() => {})
+  return operation
 }
 
-export async function updateServer(id, input) {
-  const list = await loadServers()
-  const i = list.findIndex(s => s.id === id)
-  if (i === -1) throw new Error('服务器不存在')
-
-  const next = { ...list[i], ...clean({ ...list[i], ...input }) }
-  if (input.port !== undefined && !next.port) delete next.port
-
-  if (next.auth === 'password') {
-    if (input.password) await setPassword(id, input.password)
-    else if ((await getPassword(id)) === null) throw new Error('钥匙串里还没有密码，请填一次')
-  } else if (list[i].auth === 'password') {
-    await deletePassword(id)
-  }
-
-  list[i] = next
-  await persist(list)
-  return next
+export function addServer(input) {
+  return mutate(async list => {
+    const server = { id: randomUUID(), ...clean(input) }
+    if (server.auth === 'password') {
+      if (!input.password) throw new Error('选了密码认证就必须填密码')
+      await setPassword(server.id, input.password)
+    }
+    list.push(server)
+    return server
+  })
 }
 
-export async function removeServer(id) {
-  const list = await loadServers()
-  const target = list.find(s => s.id === id)
-  if (!target) throw new Error('服务器不存在')
-  if (target.auth === 'password') await deletePassword(id)
-  await persist(list.filter(s => s.id !== id))
+export function updateServer(id, input) {
+  return mutate(async list => {
+    const i = list.findIndex(s => s.id === id)
+    if (i === -1) throw new Error('服务器不存在')
+    const next = { ...list[i], ...clean({ ...list[i], ...input }) }
+    if (input.port !== undefined && !next.port) delete next.port
+    if (next.auth === 'password') {
+      if (input.password) await setPassword(id, input.password)
+      else if ((await getPassword(id)) === null) throw new Error('钥匙串里还没有密码，请填一次')
+    } else if (list[i].auth === 'password') {
+      await deletePassword(id)
+    }
+    list[i] = next
+    return next
+  })
+}
+
+export function removeServer(id) {
+  return mutate(async list => {
+    const index = list.findIndex(s => s.id === id)
+    if (index < 0) throw new Error('服务器不存在')
+    if (list[index].auth === 'password') await deletePassword(id)
+    list.splice(index, 1)
+  })
+}
+
+export function reorderServers(ids) {
+  return mutate(list => {
+    if (!Array.isArray(ids)) throw new Error('ids 必须是数组')
+    const byId = new Map(list.map(s => [s.id, s]))
+    const order = [...new Set(ids)].filter(id => byId.has(id))
+    const wanted = new Set(order)
+    let index = 0
+    const next = list.map(s => (wanted.has(s.id) ? byId.get(order[index++]) : s))
+    list.splice(0, list.length, ...next)
+  })
 }

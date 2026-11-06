@@ -37,11 +37,12 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  side = 'center',
   onOpenAutoFocus,
   onCloseAutoFocus,
   onEscapeKeyDown,
   ...props
-}: ComponentProps<typeof DialogPrimitive.Content> & { showCloseButton?: boolean }) {
+}: ComponentProps<typeof DialogPrimitive.Content> & { showCloseButton?: boolean; side?: 'center' | 'right' }) {
   const returnTo = useRef<HTMLElement | null>(null)
 
   return (
@@ -65,9 +66,10 @@ function DialogContent({
           if (returnTo.current?.isConnected) returnTo.current.focus()
         }}
         className={cn(
-          'fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-40px)] max-w-[520px] max-h-[calc(100vh-40px)] overflow-auto',
-          'bg-card text-card-foreground border border-border rounded-2xl shadow-[0_24px_64px_rgba(0,0,0,.6)] outline-none',
-          'data-[state=open]:animate-cdt-pop data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-98 data-[state=closed]:duration-150',
+          'fixed z-50 overflow-auto bg-card text-card-foreground border border-border shadow-[0_24px_64px_rgba(0,0,0,.6)] outline-none',
+          side === 'right'
+            ? 'inset-y-0 right-0 h-dvh w-[min(720px,100vw)] rounded-none data-[state=open]:animate-cdt-drawer-in data-[state=closed]:animate-cdt-drawer-out motion-reduce:animate-none'
+            : 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-40px)] max-w-[520px] max-h-[calc(100vh-40px)] rounded-2xl data-[state=open]:animate-cdt-pop data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-98 data-[state=closed]:duration-150',
           className
         )}
         {...props}

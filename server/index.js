@@ -7,11 +7,28 @@ import { homedir } from 'node:os'
 import { basename, extname, join, dirname, isAbsolute, resolve, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseTarget, sshConfigHosts, sshEndpoint, cleanPullPaths, checkLocalDir } from './targets.js'
-import { pushOne, pullOne, checkTarget, browseRemote } from './transfer.js'
-import { loadServers, addServer, updateServer, removeServer, withSecret, CONFIG_PATH } from './servers.js'
+import { pushOne, pullOne, checkTarget, browseRemote, deleteRemote } from './transfer.js'
+import {
+  loadServers,
+  addServer,
+  updateServer,
+  removeServer,
+  reorderServers,
+  withSecret,
+  CONFIG_PATH
+} from './servers.js'
 import { keychainAvailable } from './secrets.js'
-import { loadPresets, addPreset, removePreset, reorderPresets, touchPreset, PRESETS_PATH } from './presets.js'
+import {
+  loadPresets,
+  addPreset,
+  updatePreset,
+  removePreset,
+  reorderPresets,
+  touchPreset,
+  PRESETS_PATH
+} from './presets.js'
 import { log, fail, event, recentEvents, LOG_FILE } from './log.js'
+import { validateDeletePaths } from './file-actions.js'
 import { createJobRunner } from './job-runner.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -205,6 +222,15 @@ app.post('/api/servers', async c => {
   }
 })
 
+app.put('/api/servers/order', async c => {
+  try {
+    await reorderServers((await c.req.json()).ids)
+    return c.json({ ok: true })
+  } catch (err) {
+    return c.json({ error: err.message }, 400)
+  }
+})
+
 app.put('/api/servers/:id', async c => {
   try {
     return c.json(await updateServer(c.req.param('id'), await c.req.json()))
@@ -238,6 +264,14 @@ app.put('/api/presets/order', async c => {
   try {
     await reorderPresets((await c.req.json()).ids)
     return c.json({ ok: true })
+  } catch (err) {
+    return c.json({ error: err.message }, 400)
+  }
+})
+
+app.put('/api/presets/:id', async c => {
+  try {
+    return c.json(await updatePreset(c.req.param('id'), await c.req.json()))
   } catch (err) {
     return c.json({ error: err.message }, 400)
   }
@@ -285,6 +319,27 @@ app.post('/api/browse', async c => {
     return c.json(await browseRemote(await withSecret(s), p))
   } catch (err) {
     return c.json({ ok: false, reason: err.message })
+  }
+})
+
+app.post('/api/files/delete', async c => {
+  try {
+    const { serverId, directory, paths } = await c.req.json()
+    const files = validateDeletePaths(directory, paths)
+    if ([...jobs.values()].some(job => !snapshot(job).done))
+      return c.json({ ok: false, reason: '传输进行中，请完成后再删除' }, 409)
+    const server = (await loadServers()).find(s => s.id === serverId)
+    if (!server) return c.json({ ok: false, reason: '服务器不存在' }, 404)
+    const conn = { ...(await withSecret(server)), trace: [] }
+    const result = await deleteRemote(conn, directory, files)
+    event(
+      result.ok ? 'DELETE' : 'FAIL',
+      `${server.host} 删除 ${files.length} 项${result.ok ? '完成' : '失败'}`,
+      conn.trace
+    )
+    return c.json(result, result.ok ? 200 : 400)
+  } catch (err) {
+    return c.json({ ok: false, reason: err.message }, 400)
   }
 })
 

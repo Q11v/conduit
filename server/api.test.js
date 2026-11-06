@@ -2,6 +2,7 @@ import { test, mock } from 'node:test'
 import assert from 'node:assert/strict'
 
 const transfers = []
+const deletions = []
 const servers = [{ id: 'server', name: 'server', host: 'test.invalid', auth: 'key', dirs: ['/app'] }]
 const presets = [
   { id: 'a', name: '方案 A' },
@@ -19,7 +20,16 @@ const transfer = () => {
   return task
 }
 mock.module('./transfer.js', {
-  namedExports: { pushOne: transfer, pullOne: transfer, checkTarget: noop, browseRemote: noop }
+  namedExports: {
+    pushOne: transfer,
+    pullOne: transfer,
+    checkTarget: noop,
+    browseRemote: noop,
+    deleteRemote: async (conn, directory, paths) => {
+      deletions.push({ host: conn.host, directory, paths })
+      return { ok: true, deleted: paths }
+    }
+  }
 })
 mock.module('./log.js', {
   namedExports: { log: noop, fail: noop, event: noop, recentEvents: () => [], LOG_FILE: '/unused/log' }
@@ -29,6 +39,11 @@ mock.module('./servers.js', {
     loadServers: async () => servers,
     addServer: noop,
     updateServer: noop,
+    reorderServers: async ids => {
+      if (!Array.isArray(ids)) throw new Error('ids 必须是数组')
+      const order = new Map(ids.map((id, index) => [id, index]))
+      servers.sort((a, b) => (order.get(a.id) ?? ids.length) - (order.get(b.id) ?? ids.length))
+    },
     removeServer: noop,
     withSecret: async s => ({ ...s, password: 'secret-must-not-appear-in-snapshots' }),
     CONFIG_PATH: '/unused/servers'
@@ -38,6 +53,7 @@ mock.module('./presets.js', {
   namedExports: {
     loadPresets: async () => presets,
     addPreset: noop,
+    updatePreset: async (id, input) => ({ id, ...input }),
     removePreset: noop,
     reorderPresets: noop,
     touchPreset: async () => {},
@@ -153,3 +169,52 @@ test(
     await reconnectReader.cancel()
   }
 )
+
+test('preset edit endpoint returns the updated preset without creating a new identity', async () => {
+  const response = await app.request('/api/presets/a', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'edited', kind: 'pull', serverId: 'server', paths: ['/app'], localDir: '/tmp' })
+  })
+  assert.equal(response.status, 200)
+  const preset = await response.json()
+  assert.equal(preset.id, 'a')
+  assert.equal(preset.name, 'edited')
+  assert.equal(preset.kind, 'pull')
+})
+
+test('server order route is not handled as editing a server named order', async () => {
+  const response = await app.request('/api/servers/order', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ids: ['server'] })
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true })
+  const invalid = await app.request('/api/servers/order', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ids: 'invalid' })
+  })
+  assert.equal(invalid.status, 400)
+})
+
+test('file deletion checks directory boundaries and returns deleted paths', async () => {
+  const invalid = await post('/api/files/delete', { serverId: 'server', directory: '/app', paths: ['/outside'] })
+  assert.equal(invalid.status, 400)
+  assert.equal(deletions.length, 0)
+  const response = await post('/api/files/delete', { serverId: 'server', directory: '/app', paths: ['/app/old.txt'] })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true, deleted: ['/app/old.txt'] })
+  assert.deepEqual(deletions[0], { host: 'test.invalid', directory: '/app', paths: ['/app/old.txt'] })
+})
+
+test('file deletion is blocked while a transfer is active', async () => {
+  const job = await (await start('a', '/delete-conflict')).json()
+  const before = deletions.length
+  const response = await post('/api/files/delete', { serverId: 'server', directory: '/app', paths: ['/app/old.txt'] })
+  assert.equal(response.status, 409)
+  assert.equal(deletions.length, before)
+  await post(`/api/jobs/${job.id}/cancel`)
+  await flush()
+})

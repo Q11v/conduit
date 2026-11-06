@@ -62,9 +62,10 @@ interface Props {
   onRetry: () => void
   onReveal?: () => void
   pending?: boolean
+  compact?: boolean
 }
 
-export function PushProgress({ job, onDismiss, onCancel, onRetry, onReveal, pending }: Props) {
+export function PushProgress({ job, onDismiss, onCancel, onRetry, onReveal, pending, compact = false }: Props) {
   const [open, setOpen] = useState(false)
 
   const cancelled = job.targets.filter(t => t.error === CANCELLED).length
@@ -104,10 +105,19 @@ export function PushProgress({ job, onDismiss, onCancel, onRetry, onReveal, pend
     job.localDir && `${job.localDir.replace(/\/+$/, '')}/${t.dir.replace(/\/+$/, '').split('/').pop()}`
 
   return (
-    <div className="border rounded-xl bg-ink-panel overflow-hidden" style={{ borderColor: accent.ring }}>
-      <div className="flex items-center gap-3 flex-wrap px-4 py-3">
+    <div
+      className={
+        compact ? 'border-b hair last:border-b-0 overflow-hidden' : 'border rounded-xl bg-ink-panel overflow-hidden'
+      }
+      style={compact ? undefined : { borderColor: accent.ring }}
+    >
+      <div
+        className={
+          compact ? 'flex min-h-10 items-center gap-2 px-2 py-1' : 'flex items-center gap-3 flex-wrap px-4 py-3'
+        }
+      >
         <span
-          className="flex shrink-0 items-center justify-center w-[22px] h-[22px] rounded-full"
+          className={`flex shrink-0 items-center justify-center rounded-full ${compact ? 'w-4 h-4' : 'w-[22px] h-[22px]'}`}
           style={{ background: accent.bg, color: accent.fg }}
         >
           {!job.done ? (
@@ -119,12 +129,18 @@ export function PushProgress({ job, onDismiss, onCancel, onRetry, onReveal, pend
           )}
         </span>
 
-        <div className="flex-1 min-w-[140px]">
-          <div className="truncate text-[13px] font-medium" title={job.title || job.sourceName}>
+        <div className={compact ? 'flex min-w-0 flex-1 items-center gap-3' : 'flex-1 min-w-[140px]'}>
+          <div
+            className={`truncate text-[13px] font-medium ${compact ? 'min-w-0' : ''}`}
+            title={job.title || job.sourceName}
+          >
             <span className="mr-2 text-mute-3">{pulling ? '拉取' : '推送'}</span>
             {job.title || job.sourceName}
           </div>
-          <div className="mt-0.5 text-[12px]" style={{ color: accent.fg }}>
+          <div
+            className={`${compact ? 'hidden sm:block shrink-0' : 'mt-0.5'} text-[12px]`}
+            style={{ color: accent.fg }}
+          >
             {summary}
           </div>
         </div>
@@ -134,18 +150,18 @@ export function PushProgress({ job, onDismiss, onCancel, onRetry, onReveal, pend
           </span>
         )}
 
-        <span className="flex-1" />
+        {!compact && <span className="flex-1" />}
 
         <Btn
           onClick={() => setOpen(v => !v)}
           aria-expanded={open}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-lg"
+          className={`flex shrink-0 items-center gap-1.5 text-[12px] rounded-lg ${compact ? 'px-2 py-1' : 'px-3 py-1.5'}`}
         >
           <Chevron size={12} className={`transition-transform duration-150 ${open ? 'rotate-90' : ''}`} />
           {open ? '收起' : '详情'}
         </Btn>
         {pulling && onReveal && job.done && ok > 0 && (
-          <Btn onClick={onReveal} className="px-3 py-1.5 text-[12px] rounded-lg">
+          <Btn onClick={onReveal} className={`${compact ? 'px-2 py-1' : 'px-3 py-1.5'} text-[12px] rounded-lg`}>
             打开本地目录
           </Btn>
         )}
@@ -157,9 +173,11 @@ export function PushProgress({ job, onDismiss, onCancel, onRetry, onReveal, pend
         <Btn
           onClick={job.done ? onDismiss : onCancel}
           disabled={pending}
-          className="px-3 py-1.5 text-[12px] rounded-lg"
+          aria-label={compact ? `关闭任务 ${job.title || job.sourceName}` : undefined}
+          title={compact ? '关闭任务' : undefined}
+          className={`${compact ? 'px-2 py-1' : 'px-3 py-1.5'} text-[12px] rounded-lg`}
         >
-          {job.done ? '关闭' : '取消任务'}
+          {compact ? <Close size={12} /> : job.done ? '关闭' : '取消任务'}
         </Btn>
       </div>
 

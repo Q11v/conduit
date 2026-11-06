@@ -1,9 +1,11 @@
 import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme } from 'electron'
 import { execFileSync } from 'node:child_process'
-import { stat } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import path, { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { validateDeletePaths } from '../server/file-actions.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const DEV_URL = process.env.CONDUIT_DEV_URL
@@ -68,6 +70,57 @@ ipcMain.handle('conduit:stat', async (_e, path) => {
     return { size: s.size, dir: s.isDirectory() }
   } catch {
     return null
+  }
+})
+
+ipcMain.handle('conduit:list', async (_e, path) => {
+  try {
+    const dir = resolve(expandHome(path || '~'))
+    const entries = await readdir(dir, { withFileTypes: true })
+    return {
+      ok: true,
+      path: dir,
+      select: null,
+      truncated: entries.length > 2000,
+      entries: (
+        await Promise.all(
+          entries.slice(0, 2000).map(async e => {
+            try {
+              const info = await stat(join(dir, e.name))
+              return {
+                name: e.name,
+                type: info.isDirectory() ? 'dir' : 'file',
+                size: info.isDirectory() ? null : info.size,
+                modifiedAt: info.mtimeMs
+              }
+            } catch {
+              return { name: e.name, type: e.isDirectory() ? 'dir' : 'file', size: null, modifiedAt: null }
+            }
+          })
+        )
+      ).sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1))
+    }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
+})
+
+ipcMain.handle('conduit:trash', async (_e, { directory, paths }) => {
+  const deleted = []
+  try {
+    const files = validateDeletePaths(directory, paths, path)
+    const errors = []
+    for (const file of files) {
+      try {
+        await shell.trashItem(file)
+        deleted.push(file)
+      } catch (err) {
+        errors.push(`${file}: ${err.message}`)
+      }
+    }
+    return errors.length ? { ok: false, deleted, error: errors.join('\n') } : { ok: true, deleted }
+  } catch (err) {
+    return { ok: false, deleted, error: err.message }
   }
 })
 

@@ -82,6 +82,7 @@ export interface RemoteEntry {
   name: string
   type: 'dir' | 'file'
   size: number | null
+  modifiedAt?: number | null
 }
 
 export interface Listing {

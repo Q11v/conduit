@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { isSuccessfulJob } from '../lib/job-state'
 import { PushProgress } from './PushProgress'
 import { Chevron } from './Icons'
 import { Btn } from './ui'
@@ -16,6 +17,7 @@ interface Props {
 
 export function TaskCenter({ jobs, pending, parallel, onDismiss, onCancel, onRetry, onReveal }: Props) {
   const [open, setOpen] = useState(true)
+  const [showCompleted, setShowCompleted] = useState(false)
   if (!jobs.length) return null
   const active = jobs.filter(j => !j.done)
   const completed = jobs.length - active.length
@@ -25,27 +27,67 @@ export function TaskCenter({ jobs, pending, parallel, onDismiss, onCancel, onRet
     (a, b) => Number(a.done) - Number(b.done) || (b.createdAt || '').localeCompare(a.createdAt || '')
   )
 
+  const successful = ordered.filter(isSuccessfulJob)
+  const visible = ordered.filter(job => !isSuccessfulJob(job))
+  const attention = visible.filter(job => job.done).length
+  const expanded = open && (visible.length > 0 || (showCompleted && successful.length > 0))
+  const renderJob = (job: JobSnapshot, compact = false) => (
+    <PushProgress
+      key={job.id}
+      job={job}
+      compact={compact}
+      pending={pending.has(`retry:${job.id}`) || pending.has(`cancel:${job.id}`)}
+      onDismiss={() => onDismiss(job.id)}
+      onCancel={() => onCancel(job.id)}
+      onRetry={() => onRetry(job.id)}
+      onReveal={job.kind === 'pull' ? () => onReveal(job.id) : undefined}
+    />
+  )
+
   return (
-    <section aria-label="任务中心" className="fixed inset-x-0 bottom-0 z-16 px-5 pb-4 pointer-events-none">
-      <div className="max-w-[1000px] mx-auto border hair-3 rounded-2xl bg-ink-float elevated overflow-hidden pointer-events-auto">
-        <div className="flex items-center gap-3 px-4 py-3">
+    <section aria-label="任务中心" className="relative z-16 shrink-0 bg-ink-panel">
+      <div className="w-full max-w-[1400px] mx-auto px-6">
+        <div className="flex items-center gap-3 py-3">
           <button
             type="button"
-            onClick={() => setOpen(v => !v)}
-            aria-expanded={open}
+            onClick={() => {
+              if (expanded) setOpen(false)
+              else {
+                setOpen(true)
+                setShowCompleted(true)
+              }
+            }}
+            aria-expanded={expanded}
             aria-controls="transfer-tasks"
             className="flex items-center gap-2 text-[13px] font-semibold cursor-pointer"
           >
-            <Chevron size={14} className={open ? 'rotate-90' : '-rotate-90'} />
+            <Chevron size={14} className={expanded ? 'rotate-90' : ''} />
             任务中心{' '}
             <span className="text-mute font-normal">
-              {active.length} 进行中 · {completed} 已结束
+              {active.length} 进行中{attention > 0 ? ` · ${attention} 需处理` : ''}
             </span>
           </button>
           <span className="flex-1" />
-          <span className="hidden sm:inline text-[12px] text-mute-3">
-            {running}/{parallel} 路传输 · {waiting} 个目标等待
-          </span>
+          {active.length > 0 && (
+            <span className="hidden sm:inline text-[12px] text-mute-3">
+              {running}/{parallel} 路传输 · {waiting} 个目标等待
+            </span>
+          )}
+          {successful.length > 0 && (
+            <button
+              type="button"
+              aria-expanded={open && showCompleted}
+              aria-controls="completed-transfers"
+              onClick={() => {
+                setShowCompleted(!open || !showCompleted)
+                setOpen(true)
+              }}
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-mute hover:bg-white/5 hover:text-fg cursor-pointer"
+            >
+              <Chevron size={12} className={open && showCompleted ? 'rotate-90' : ''} />
+              已完成 {successful.length}
+            </button>
+          )}
           {completed > 0 && (
             <Btn
               onClick={() => jobs.filter(j => j.done).forEach(j => onDismiss(j.id))}
@@ -55,19 +97,12 @@ export function TaskCenter({ jobs, pending, parallel, onDismiss, onCancel, onRet
             </Btn>
           )}
         </div>
-        {open && (
-          <div id="transfer-tasks" className="flex flex-col gap-2 max-h-[55vh] overflow-y-auto px-3 pb-3">
-            {ordered.map(job => (
-              <PushProgress
-                key={job.id}
-                job={job}
-                pending={pending.has(`retry:${job.id}`) || pending.has(`cancel:${job.id}`)}
-                onDismiss={() => onDismiss(job.id)}
-                onCancel={() => onCancel(job.id)}
-                onRetry={() => onRetry(job.id)}
-                onReveal={job.kind === 'pull' ? () => onReveal(job.id) : undefined}
-              />
-            ))}
+        {expanded && (
+          <div id="transfer-tasks" className="flex flex-col gap-2 max-h-[35vh] overflow-y-auto pb-3">
+            {visible.map(job => renderJob(job))}
+            {showCompleted && successful.length > 0 && (
+              <div id="completed-transfers">{successful.map(job => renderJob(job, true))}</div>
+            )}
           </div>
         )}
       </div>

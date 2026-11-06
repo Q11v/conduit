@@ -1,15 +1,17 @@
 import { History } from './Icons'
+import { HeaderLinks } from './HeaderLinks'
+import type { HostsInfo } from '../types'
 import type { View } from '../useConduit'
 
 interface Props {
+  hosts: HostsInfo | null
   view: View
   onView: (v: View) => void
 }
 
 const MAIN: { id: View; label: string }[] = [
-  { id: 'servers', label: '服务器' },
-  { id: 'push', label: '推送' },
-  { id: 'pull', label: '拉取' }
+  { id: 'workbench', label: '工作台' },
+  { id: 'plans', label: '方案' }
 ]
 
 const Tab = ({
@@ -36,11 +38,13 @@ const Tab = ({
   </button>
 )
 
-export function TopBar({ view, onView }: Props) {
+export function TopBar({ view, onView, hosts }: Props) {
   const integrated = window.desktop?.platform === 'darwin'
 
   return (
-    <header className={`sticky top-0 z-20 bg-ink border-b hair select-none ${integrated ? 'desktop-titlebar' : ''}`}>
+    <header
+      className={`shrink-0 sticky top-0 z-20 bg-ink border-b hair select-none ${integrated ? 'desktop-titlebar' : ''}`}
+    >
       <div
         className={`flex h-[52px] items-center gap-6 pr-5 ${integrated ? 'pl-[96px]' : 'max-w-[1000px] mx-auto pl-5'}`}
       >
@@ -77,6 +81,7 @@ export function TopBar({ view, onView }: Props) {
             <History size={14} />
             <span className="hidden sm:inline">活动记录</span>
           </button>
+          <HeaderLinks hosts={hosts} />
         </div>
       </div>
     </header>

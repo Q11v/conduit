@@ -17,7 +17,7 @@ import type {
 import { emptyDraft, splitKey, targetKey } from './types'
 import { useJobs } from './useJobs'
 
-export type View = 'push' | 'pull' | 'log' | 'servers'
+export type View = 'workbench' | 'plans' | 'push' | 'pull' | 'log' | 'servers'
 export type FormMode = 'new' | (string & {}) | null
 
 export interface Status {
@@ -46,13 +46,13 @@ const loadRecentDirs = (): string[] => {
 }
 
 const VIEW_KEY = 'conduit.view'
-const VIEWS: View[] = ['push', 'pull', 'log', 'servers']
+const VIEWS: View[] = ['workbench', 'plans', 'log']
 const loadView = (): View => {
   try {
     const v = localStorage.getItem(VIEW_KEY) as View | null
-    return v && VIEWS.includes(v) ? v : 'servers'
+    return v && VIEWS.includes(v) ? v : 'workbench'
   } catch {
-    return 'servers'
+    return 'workbench'
   }
 }
 
@@ -105,6 +105,24 @@ export function useConduit() {
     const r = await api.getServers()
     if (r.ok && r.servers) setServers(r.servers)
   }, [])
+
+  const reorderServers = useCallback(
+    async (ids: string[]) => {
+      // Reordering must not change the server already selected in the workbench.
+      setPullServerId(id => id || servers[0]?.id || '')
+      const positions = new Map(ids.map((id, i) => [id, i]))
+      setServers(list =>
+        [...list].sort((a, b) => (positions.get(a.id) ?? ids.length) - (positions.get(b.id) ?? ids.length))
+      )
+      const r = await api.reorderServers(ids)
+      if (!r.ok) {
+        await reloadServers()
+        return why(r)
+      }
+      return null
+    },
+    [servers, reloadServers]
+  )
 
   const reloadPresets = useCallback(async () => {
     const r = await api.getPresets()
@@ -448,6 +466,13 @@ export function useConduit() {
         const dir = t.dir ?? s.dirs[0]
         if (dir) live.push({ serverId: s.id, dir })
       }
+      if (run) {
+        if (live.length !== p.targets.length) {
+          return setStatus({ text: '方案中有目标已失效，请编辑方案后重试', bad: true })
+        }
+        await runPush(p.src, [...live, ...p.adhoc], p.id)
+        return
+      }
       const missing = p.targets.length - live.length
       setSel(new Set(live.map(t => targetKey(t.serverId, t.dir))))
       setAdhoc(p.adhoc.join('\n'))
@@ -455,10 +480,8 @@ export function useConduit() {
       setSourceCheck(null)
       setSourceRevision(v => v + 1)
       setAppliedPreset(p.id)
-      setView('push')
+      setView('workbench')
       setStatus(missing > 0 ? { text: `方案里有 ${missing} 个目标已失效（服务器被删），已跳过`, bad: true } : null)
-      if (!run) return
-      await runPush(p.src, [...live, ...p.adhoc], p.id)
     },
     [servers, runPush]
   )
@@ -537,16 +560,19 @@ export function useConduit() {
 
   const applyPullPreset = useCallback(
     async (p: PullPreset, run: boolean) => {
-      setView('pull')
       if (!servers.some(s => s.id === p.serverId)) {
         return setPullStatus({ text: `方案「${p.name}」里的服务器已被删除`, bad: true })
       }
+      if (run) {
+        await runPull(p.serverId, p.paths, p.localDir, p.id)
+        return
+      }
+      setView('workbench')
       setPullServerId(p.serverId)
       setPullPaths(p.paths)
       setPullDir(p.localDir)
       setAppliedPullPreset(p.id)
       setPullStatus(null)
-      if (run) await runPull(p.serverId, p.paths, p.localDir, p.id)
     },
     [servers, runPull]
   )
@@ -608,6 +634,10 @@ export function useConduit() {
   return {
     view,
     setView,
+    runPush,
+    runPull,
+    reloadPresets,
+    reorderServers,
     loaded,
     servers,
     tags,

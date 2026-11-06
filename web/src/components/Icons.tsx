@@ -29,8 +29,9 @@ export const Servers = ({ size = 14 }: Props) => (
 
 export const FileIcon = ({ size = 15, className }: Props) => (
   <svg width={size} height={size} viewBox="0 0 24 24" className={className} {...stroke()}>
-    <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
-    <path d="M14 3v6h6" />
+    <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" fill="currentColor" fillOpacity=".12" />
+    <path d="M14 3v6h6" fill="currentColor" fillOpacity=".24" />
+    <path d="M8 13h8M8 17h5" strokeWidth="1.4" />
   </svg>
 )
 
@@ -120,7 +121,12 @@ export const ArrowDown = ({ size = 15 }: Props) => (
 
 export const Folder = ({ size = 14, className }: Props) => (
   <svg width={size} height={size} viewBox="0 0 24 24" className={className} {...stroke(1.7)}>
-    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+    <path
+      d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"
+      fill="currentColor"
+      fillOpacity=".2"
+    />
+    <path d="M3 10h18v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" fill="currentColor" fillOpacity=".8" strokeWidth="1.3" />
   </svg>
 )
 

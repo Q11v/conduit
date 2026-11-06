@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { More, Pencil, Plus, Trash, Zap } from './Icons'
+import { ArrowDown, ArrowUp, Grip, More, Pencil, Plus, Trash, Zap } from './Icons'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Btn, Chip, CountBadge, IconBtn, ProbeBadge } from './ui'
 import { Hero } from './Hero'
 import type { Check, Probe, Server } from '../types'
 
 interface Props {
+  compact?: boolean
   loaded: boolean
   servers: Server[]
   tags: string[]
@@ -16,6 +17,7 @@ interface Props {
   onEdit: (id: string) => void
   onRemove: (id: string) => void
   onNew: () => void
+  onReorder: (ids: string[]) => Promise<string | null>
 }
 
 const STALE_MS = 10 * 60 * 1000
@@ -44,7 +46,10 @@ function ServerRow({
   onCheck,
   onEdit,
   onRemove,
-  onTag
+  onTag,
+  leading,
+  onMoveUp,
+  onMoveDown
 }: {
   s: Server
   check?: Check
@@ -54,6 +59,9 @@ function ServerRow({
   onEdit: () => void
   onRemove: () => void
   onTag: (tag: string) => void
+  leading?: ReactNode
+  onMoveUp?: () => void
+  onMoveDown?: () => void
 }) {
   const [menu, setMenu] = useState(false)
   const verdict = check && check !== 'testing' ? check : null
@@ -63,6 +71,7 @@ function ServerRow({
 
   return (
     <div className="flex items-center gap-4 px-4 py-3 border-t hair first:border-t-0 transition-colors duration-150 hover:bg-[rgba(255,255,255,.025)]">
+      {leading}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 min-w-0">
           <button
@@ -136,6 +145,26 @@ function ServerRow({
               编辑
             </MenuItem>
             <MenuItem
+              disabled={!onMoveUp}
+              onClick={() => {
+                setMenu(false)
+                onMoveUp?.()
+              }}
+            >
+              <ArrowUp />
+              上移
+            </MenuItem>
+            <MenuItem
+              disabled={!onMoveDown}
+              onClick={() => {
+                setMenu(false)
+                onMoveDown?.()
+              }}
+            >
+              <ArrowDown />
+              下移
+            </MenuItem>
+            <MenuItem
               danger
               onClick={() => {
                 setMenu(false)
@@ -152,12 +181,23 @@ function ServerRow({
   )
 }
 
-function MenuItem({ danger, onClick, children }: { danger?: boolean; onClick: () => void; children: ReactNode }) {
+function MenuItem({
+  danger,
+  disabled,
+  onClick,
+  children
+}: {
+  danger?: boolean
+  disabled?: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-2 w-full px-2.5 py-1.5 border-0 rounded-lg bg-transparent text-left text-[13px] cursor-pointer ${
+      disabled={disabled}
+      className={`disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 w-full px-2.5 py-1.5 border-0 rounded-lg bg-transparent text-left text-[13px] cursor-pointer ${
         danger ? 'text-err-text hover:bg-[rgba(226,86,86,.14)]' : 'text-fg-soft hover:bg-[rgba(255,255,255,.08)]'
       }`}
     >
@@ -182,9 +222,37 @@ export function ServersView(p: Props) {
   const active = tag && p.tags.includes(tag) ? tag : null
   const shown = active ? p.servers.filter(s => s.tags?.includes(active)) : p.servers
 
+  const [dragged, setDragged] = useState<string | null>(null)
+  const [over, setOver] = useState<string | null>(null)
+  const [savingOrder, setSavingOrder] = useState(false)
+  const [orderError, setOrderError] = useState('')
+  const move = async (source: string, target: string) => {
+    if (savingOrder || source === target) return
+    const ids = shown.map(s => s.id)
+    const from = ids.indexOf(source)
+    const to = ids.indexOf(target)
+    if (from < 0 || to < 0) return
+    ids.splice(from, 1)
+    ids.splice(to, 0, source)
+    const visible = new Set(ids)
+    let index = 0
+    const order = p.servers.map(s => (visible.has(s.id) ? ids[index++] : s.id))
+    setSavingOrder(true)
+    setOrderError('')
+    try {
+      setOrderError((await p.onReorder(order)) || '')
+    } catch (e) {
+      setOrderError(String(e))
+    } finally {
+      setSavingOrder(false)
+    }
+  }
+
   return (
     <div>
-      <Hero eyebrow="ssh targets" title="一处配置，推拉共用" desc="统一管理主机和认证，推送、拉取时直接选用。" />
+      {!p.compact && (
+        <Hero eyebrow="ssh targets" title="一处配置，推拉共用" desc="统一管理主机和认证，推送、拉取时直接选用。" />
+      )}
 
       <div className="flex items-center gap-x-3 gap-y-2 flex-wrap mb-4">
         <h2 className="m-0 shrink-0 text-[17px] font-bold tracking-[-0.01em]">服务器</h2>
@@ -231,19 +299,70 @@ export function ServersView(p: Props) {
               ))}
             </div>
           )}
+          <p className="mb-2 text-xs text-mute">
+            {savingOrder ? '正在保存顺序…' : '拖动左侧手柄排序，也可在「更多」中上移、下移。'}
+          </p>
+          {orderError && (
+            <p role="alert" className="mb-2 text-xs text-err-text">
+              顺序保存失败：{orderError}
+            </p>
+          )}
           <div className="border hair-2 rounded-2xl panel overflow-hidden">
-            {shown.map(s => (
-              <ServerRow
+            {shown.map((s, i) => (
+              <div
                 key={s.id}
-                s={s}
-                check={p.checks[s.id]}
-                probe={p.probeOf(s.id)}
-                now={now}
-                onCheck={() => p.onCheck(s.id)}
-                onEdit={() => p.onEdit(s.id)}
-                onRemove={() => p.onRemove(s.id)}
-                onTag={setTag}
-              />
+                className={`border-t hair first:border-t-0 ${over === s.id ? 'bg-violet/10 ring-1 ring-inset ring-violet' : ''}`}
+                onDragOver={e => {
+                  if (dragged && !savingOrder && dragged !== s.id) {
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                    setOver(s.id)
+                  }
+                }}
+                onDragLeave={e => {
+                  if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) setOver(null)
+                }}
+                onDrop={e => {
+                  e.preventDefault()
+                  if (dragged) void move(dragged, s.id)
+                  setDragged(null)
+                  setOver(null)
+                }}
+              >
+                <ServerRow
+                  s={s}
+                  check={p.checks[s.id]}
+                  probe={p.probeOf(s.id)}
+                  now={now}
+                  onCheck={() => p.onCheck(s.id)}
+                  onEdit={() => p.onEdit(s.id)}
+                  onRemove={() => p.onRemove(s.id)}
+                  onTag={setTag}
+                  onMoveUp={!savingOrder && i > 0 ? () => void move(s.id, shown[i - 1].id) : undefined}
+                  onMoveDown={!savingOrder && i < shown.length - 1 ? () => void move(s.id, shown[i + 1].id) : undefined}
+                  leading={
+                    <button
+                      type="button"
+                      draggable={!savingOrder && shown.length > 1}
+                      disabled={savingOrder || shown.length < 2}
+                      aria-label={`拖动调整 ${s.name} 的顺序`}
+                      title="拖动排序；也可在更多菜单中上移、下移"
+                      className="shrink-0 cursor-grab rounded p-1 text-mute-4 hover:bg-white/5 hover:text-fg active:cursor-grabbing disabled:opacity-30 disabled:cursor-not-allowed"
+                      onDragStart={e => {
+                        e.dataTransfer.effectAllowed = 'move'
+                        e.dataTransfer.setData('application/x-conduit-server', s.id)
+                        setDragged(s.id)
+                      }}
+                      onDragEnd={() => {
+                        setDragged(null)
+                        setOver(null)
+                      }}
+                    >
+                      <Grip size={14} />
+                    </button>
+                  }
+                />
+              </div>
             ))}
           </div>
         </>

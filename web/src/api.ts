@@ -61,6 +61,8 @@ export const createServer = (d: ServerDraft) => request<Server>('/api/servers', 
 
 export const saveServer = (id: string, d: ServerDraft) => request<Server>(`/api/servers/${id}`, payload(d), 'PUT')
 
+export const reorderServers = (ids: string[]) => request<{ ok: true }>('/api/servers/order', { ids }, 'PUT')
+
 export const deleteServer = (id: string) => request<{ ok: true }>(`/api/servers/${id}`, undefined, 'DELETE')
 
 export const checkServer = (serverId: string) => request<CheckVerdict>('/api/check', { serverId })
@@ -74,6 +76,9 @@ export const startJob = (source: string, targets: TargetRef[], presetId?: string
 
 export const browse = (serverId: string, path: string) => request<Listing>('/api/browse', { serverId, path })
 
+export const deleteRemoteFiles = (serverId: string, directory: string, paths: string[]) =>
+  request<{ deleted: string[] }>('/api/files/delete', { serverId, directory, paths })
+
 export const startPull = (serverId: string, paths: string[], localDir: string, presetId?: string) =>
   request<{ id: string; job: JobSnapshot }>('/api/pulls', { serverId, paths, localDir, presetId })
 
@@ -86,6 +91,8 @@ export const getActivity = () => request<{ events: ActivityEvent[] }>('/api/acti
 export const getPresets = () => request<{ presets: Preset[] }>('/api/presets', undefined, 'GET')
 
 export const createPreset = (p: PresetInput) => request<Preset>('/api/presets', p)
+
+export const updatePreset = (id: string, p: PresetInput) => request<Preset>(`/api/presets/${id}`, p, 'PUT')
 
 export const reorderPresets = (ids: string[]) => request<{ ok: true }>('/api/presets/order', { ids }, 'PUT')
 

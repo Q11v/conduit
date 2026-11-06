@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Chevron, Copy } from './Icons'
 import { Btn, IconBtn } from './ui'
 import type { ActivityEvent } from '../types'
@@ -30,13 +30,18 @@ interface Props {
 
 function Row({ e }: { e: ActivityEvent }) {
   const [open, setOpen] = useState(false)
+  const detailsId = useId()
+  const fullText = e.detail ? `${e.msg}\n\n${e.detail}` : e.msg
   const [bg, fg] = TAG[e.level] ?? FALLBACK
   const [day, time] = when(e.t)
   return (
     <div className="border-b hair last:border-b-0">
-      <div
-        onClick={e.detail ? () => setOpen(v => !v) : undefined}
-        className={`flex items-start gap-3 px-4 py-[11px] ${e.detail ? 'cursor-pointer hover:bg-[rgba(255,255,255,.025)]' : ''}`}
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        aria-controls={detailsId}
+        className="flex w-full items-center gap-3 px-4 py-[11px] text-left cursor-pointer hover:bg-[rgba(255,255,255,.025)]"
       >
         <span
           className="shrink-0 w-[112px] whitespace-nowrap font-mono text-[12px] leading-[19px] text-mute-4 tabular-nums"
@@ -51,18 +56,16 @@ function Row({ e }: { e: ActivityEvent }) {
         >
           {e.level}
         </span>
-        <span className="flex-1 min-w-0 font-mono text-[12px] leading-relaxed text-fg-dim break-all">{e.msg}</span>
-        {e.detail && (
-          <Chevron
-            size={12}
-            className={`shrink-0 mt-[4px] text-mute-3 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
-          />
-        )}
-      </div>
-      {open && e.detail && (
-        <div className="relative mx-4 mb-3 ml-[206px] rounded-lg bg-[rgba(0,0,0,.35)] border hair">
+        <span className="flex-1 min-w-0 truncate font-mono text-[12px] leading-[19px] text-fg-dim">{e.msg}</span>
+        <Chevron
+          size={12}
+          className={`shrink-0 text-mute-3 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
+        />
+      </button>
+      {open && (
+        <div id={detailsId} className="relative mx-4 mb-3 sm:ml-[206px] rounded-lg bg-[rgba(0,0,0,.35)] border hair">
           <IconBtn
-            onClick={() => void navigator.clipboard.writeText(e.detail ?? '')}
+            onClick={() => void navigator.clipboard.writeText(fullText)}
             title="复制"
             aria-label="复制详情"
             className="absolute right-1.5 top-1.5 w-7 h-7"
@@ -70,7 +73,7 @@ function Row({ e }: { e: ActivityEvent }) {
             <Copy size={12} />
           </IconBtn>
           <pre className="m-0 p-3 pr-10 max-h-80 overflow-auto font-mono text-[12px] leading-relaxed text-fg-dim whitespace-pre-wrap break-all select-text">
-            {e.detail}
+            {fullText}
           </pre>
         </div>
       )}
@@ -86,7 +89,7 @@ export function ActivityView({ events, failedOnly, onFailedOnly, logFile }: Prop
       <div className="flex items-center gap-2.5 flex-wrap mb-4">
         <h2 className="m-0 shrink-0 text-[19px] font-semibold tracking-[-0.02em]">活动记录</h2>
         <span className="shrink-0 whitespace-nowrap text-[13px] text-mute-2">
-          最近 {events.length} 条 · 点开看命令和输出
+          最近 {events.length} 条 · 点击查看完整内容与命令输出
         </span>
         <div className="flex-1" />
         {logFile && (

@@ -104,6 +104,16 @@ export function addPreset(input) {
   })
 }
 
+export function updatePreset(id, input) {
+  return mutate(list => {
+    const index = list.findIndex(p => p.id === id)
+    if (index < 0) throw new Error('方案不存在')
+    const preset = { id: list[index].id, ...clean(input), lastRun: list[index].lastRun }
+    list[index] = preset
+    return preset
+  })
+}
+
 export function removePreset(id) {
   return mutate(list => {
     const index = list.findIndex(p => p.id === id)
