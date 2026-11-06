@@ -72,6 +72,7 @@ export interface HostsInfo {
   hosts: string[]
   configPath: string
   presetsPath: string
+  settingsPath: string
   home: string
   keychain: boolean
   parallel: number
@@ -150,4 +151,22 @@ export interface ActivityEvent {
   level: LogLevel
   msg: string
   detail?: string
+}
+
+export interface Bookmark {
+  id: string
+  name: string
+  local: string
+  remote: string
+  serverId: string
+}
+export interface WorkspaceSettings {
+  bookmarks: Bookmark[]
+  localFavorites: string[]
+  localDirectory: string
+  remoteDirectory: string
+  remoteServerId: string
+  view: 'workbench' | 'plans' | 'log'
+  theme: 'dark' | 'light'
+  legacyImported: boolean
 }

@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 
-const SERVICE = 'conduit'
+const SERVICE = process.env.CONDUIT_KEYCHAIN_SERVICE || 'conduit'
 export const keychainAvailable = process.platform === 'darwin'
 
 function exec(args, stdin) {

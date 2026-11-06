@@ -6,7 +6,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import prettier from 'eslint-config-prettier/flat'
 
 export default [
-  { ignores: ['node_modules', 'web/dist', 'release'] },
+  { ignores: ['node_modules', 'web/dist', 'release', 'tests/.generated'] },
 
   js.configs.recommended,
 
@@ -30,7 +30,7 @@ export default [
   },
 
   {
-    files: ['server/**/*.js', 'electron/**/*.js', '*.{js,ts}'],
+    files: ['server/**/*.js', 'electron/**/*.js', 'tests/**/*.js', '*.{js,ts}'],
     languageOptions: { globals: globals.node },
     rules: {
       'no-unused-vars': ['error', { ignoreRestSiblings: true }]

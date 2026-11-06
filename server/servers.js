@@ -1,39 +1,57 @@
-import { readFile, writeFile, mkdir, rename } from 'node:fs/promises'
+import { readJson, writeJson, withDataLock } from './json-store.js'
 import { homedir } from 'node:os'
-import { join, dirname } from 'node:path'
+import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { setPassword, getPassword, deletePassword, keychainAvailable } from './secrets.js'
 
-export const CONFIG_PATH = process.env.CONDUIT_CONFIG || join(homedir(), '.config', 'conduit', 'servers.json')
+export const CONFIG_PATH =
+  process.env.CONDUIT_CONFIG ||
+  join(process.env.CONDUIT_DATA_DIR || join(homedir(), '.config', 'conduit'), 'servers.json')
+
+export const isServerData = value =>
+  Array.isArray(value) &&
+  value.every(
+    s =>
+      s &&
+      typeof s.id === 'string' &&
+      s.id &&
+      typeof s.host === 'string' &&
+      s.host &&
+      (s.name === undefined || typeof s.name === 'string') &&
+      (s.port === undefined ||
+        s.port === '' ||
+        (Number.isInteger(Number(s.port)) && Number(s.port) >= 1 && Number(s.port) <= 65535)) &&
+      (s.auth === undefined || ['key', 'password'].includes(s.auth)) &&
+      (s.dirs === undefined || (Array.isArray(s.dirs) && s.dirs.every(d => typeof d === 'string'))) &&
+      (s.dir === undefined || typeof s.dir === 'string') &&
+      (s.tags === undefined || (Array.isArray(s.tags) && s.tags.every(t => typeof t === 'string')))
+  )
 
 export async function loadServers() {
-  try {
-    const parsed = JSON.parse(await readFile(CONFIG_PATH, 'utf8'))
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .map(s => {
-        if (!s?.host) return null
-        const dirs = Array.isArray(s.dirs)
-          ? s.dirs.filter(d => typeof d === 'string' && d.trim())
-          : typeof s.dir === 'string' && s.dir.trim()
-            ? [s.dir.trim()]
-            : []
-        const { dir, group, ...rest } = s
-        const tags = cleanTags(Array.isArray(s.tags) ? s.tags : group ? [group] : [])
-        return { ...rest, dirs: [...new Set(dirs)], tags }
-      })
-      .filter(Boolean)
-  } catch {
-    return []
-  }
+  const parsed = await readJson(CONFIG_PATH, isServerData, [])
+  return parsed
+    .map(s => {
+      if (!s?.host) return null
+      const dirs = Array.isArray(s.dirs)
+        ? s.dirs.filter(d => typeof d === 'string' && d.trim())
+        : typeof s.dir === 'string' && s.dir.trim()
+          ? [s.dir.trim()]
+          : []
+      const { dir, group, port, ...rest } = s
+      const tags = cleanTags(Array.isArray(s.tags) ? s.tags : group ? [group] : [])
+      return {
+        ...rest,
+        ...(port ? { port: Number(port) } : {}),
+        name: s.name || s.host,
+        auth: s.auth || 'key',
+        dirs: [...new Set(dirs)],
+        tags
+      }
+    })
+    .filter(Boolean)
 }
 
-async function persist(list) {
-  await mkdir(dirname(CONFIG_PATH), { recursive: true })
-  const tmp = `${CONFIG_PATH}.${randomUUID()}.tmp`
-  await writeFile(tmp, JSON.stringify(list, null, 2) + '\n', 'utf8')
-  await rename(tmp, CONFIG_PATH)
-}
+const persist = list => writeJson(CONFIG_PATH, list, isServerData)
 
 function cleanTags(raw) {
   if (!Array.isArray(raw)) return []
@@ -84,16 +102,13 @@ export async function withSecret(server) {
 }
 
 // Serialize configuration mutations so ordering never overwrites an edit or new server.
-let pendingWrite = Promise.resolve()
 function mutate(change) {
-  const operation = pendingWrite.then(async () => {
+  return withDataLock(async () => {
     const list = await loadServers()
     const result = await change(list)
     await persist(list)
     return result
   })
-  pendingWrite = operation.catch(() => {})
-  return operation
 }
 
 export function addServer(input) {

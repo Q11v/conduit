@@ -1,8 +1,13 @@
 import { createScheduler } from './scheduler.js'
 
-export function createJobRunner({ parallel, startTask, resourcesFor, publish, event }) {
-  const scheduler = createScheduler(parallel)
-
+export function createJobRunner({
+  parallel,
+  startTask,
+  resourcesFor,
+  publish,
+  event,
+  scheduler = createScheduler(parallel)
+}) {
   function runJob(job, keys) {
     job.scheduled ??= new Map()
     for (const key of keys) {

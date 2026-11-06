@@ -26,8 +26,11 @@ function Checkbox({
       )}
       {...props}
     >
-      <CheckboxPrimitive.Indicator data-slot="checkbox-indicator" className="flex items-center justify-center">
-        {props.checked === 'indeterminate' ? <span className="w-[9px] h-[2px] rounded-full bg-white" /> : <Check />}
+      <CheckboxPrimitive.Indicator
+        data-slot="checkbox-indicator"
+        className={`flex items-center justify-center ${tone === 'cyan' ? 'text-cyan-ink' : 'text-white'}`}
+      >
+        {props.checked === 'indeterminate' ? <span className="w-[9px] h-[2px] rounded-full bg-current" /> : <Check />}
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
   )

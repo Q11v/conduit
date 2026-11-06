@@ -1,10 +1,12 @@
-import { History } from './Icons'
+import { History, Sun, Moon } from './Icons'
 import { HeaderLinks } from './HeaderLinks'
 import type { HostsInfo } from '../types'
 import type { View } from '../useConduit'
 
 interface Props {
   hosts: HostsInfo | null
+  theme: 'dark' | 'light'
+  onTheme: (theme: 'dark' | 'light') => void
   view: View
   onView: (v: View) => void
 }
@@ -31,14 +33,14 @@ const Tab = ({
     aria-current={active ? 'page' : undefined}
     title={`${children}（${shortcut}）`}
     className={`flex items-center px-3 py-1.5 border-0 rounded-md text-[13px] font-medium whitespace-nowrap cursor-pointer transition-colors duration-150 ${
-      active ? 'bg-white/8 text-fg' : 'bg-transparent text-mute hover:bg-white/4 hover:text-fg-dim'
+      active ? 'bg-fg/8 text-fg' : 'bg-transparent text-mute hover:bg-fg/4 hover:text-fg-dim'
     }`}
   >
     {children}
   </button>
 )
 
-export function TopBar({ view, onView, hosts }: Props) {
+export function TopBar({ view, onView, hosts, theme, onTheme }: Props) {
   const integrated = window.desktop?.platform === 'darwin'
 
   return (
@@ -46,9 +48,12 @@ export function TopBar({ view, onView, hosts }: Props) {
       className={`shrink-0 sticky top-0 z-20 bg-ink border-b hair select-none ${integrated ? 'desktop-titlebar' : ''}`}
     >
       <div
-        className={`flex h-[52px] items-center gap-6 pr-5 ${integrated ? 'pl-[96px]' : 'max-w-[1000px] mx-auto pl-5'}`}
+        className={`relative flex h-[52px] items-center gap-3 pr-4 ${integrated ? 'pl-[96px]' : 'max-w-[1000px] mx-auto pl-5'}`}
       >
-        <span className="hidden sm:inline-flex h-5 shrink-0 items-center border-r hair-3 pr-6 text-[12px] font-medium tracking-[0.02em] text-mute-4">
+        <span
+          className="pointer-events-none absolute left-1/2 hidden -translate-x-1/2 text-[12px] font-medium tracking-wide text-mute-4 xl:inline"
+          aria-hidden="true"
+        >
           Conduit
         </span>
 
@@ -67,7 +72,7 @@ export function TopBar({ view, onView, hosts }: Props) {
 
         <div className="flex-1" />
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             onClick={() => onView('log')}
@@ -75,11 +80,21 @@ export function TopBar({ view, onView, hosts }: Props) {
             aria-label="活动记录"
             aria-current={view === 'log' ? 'page' : undefined}
             className={`flex items-center justify-center gap-1.5 h-8 px-2 rounded-md border-0 text-[12px] cursor-pointer transition-colors duration-150 ${
-              view === 'log' ? 'bg-white/8 text-fg' : 'bg-transparent text-mute hover:bg-white/4 hover:text-fg-dim'
+              view === 'log' ? 'bg-fg/8 text-fg' : 'bg-transparent text-mute hover:bg-fg/4 hover:text-fg-dim'
             }`}
           >
             <History size={14} />
-            <span className="hidden sm:inline">活动记录</span>
+            <span>活动记录</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onTheme(theme === 'dark' ? 'light' : 'dark')}
+            aria-label={theme === 'dark' ? '切换到日间模式' : '切换到夜间模式'}
+            title={theme === 'dark' ? '切换到日间模式' : '切换到夜间模式'}
+            className="flex h-8 items-center justify-center gap-1.5 rounded-md px-2 text-[12px] text-mute hover:bg-fg/4 hover:text-fg-dim cursor-pointer"
+          >
+            {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+            <span>{theme === 'dark' ? '日间' : '夜间'}</span>
           </button>
           <HeaderLinks hosts={hosts} />
         </div>

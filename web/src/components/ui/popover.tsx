@@ -33,7 +33,7 @@ function PopoverContent({
         sideOffset={sideOffset}
         className={cn(
           'z-50 w-72 origin-(--radix-popover-content-transform-origin) outline-none',
-          'bg-popover text-popover-foreground border border-[rgba(255,255,255,.2)] rounded-[14px] elevated',
+          'bg-popover text-popover-foreground border border-[rgba(var(--surface-rgb),.2)] rounded-[14px] elevated',
           'data-[state=open]:animate-cdt-pop data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-98 data-[state=closed]:duration-150',
           className
         )}

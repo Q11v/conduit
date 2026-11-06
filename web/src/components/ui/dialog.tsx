@@ -24,7 +24,7 @@ function DialogOverlay({ className, ...props }: ComponentProps<typeof DialogPrim
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        'fixed inset-0 z-50 bg-[rgba(4,4,7,.6)] backdrop-blur-[3px]',
+        'fixed inset-0 z-50 bg-[var(--dialog-overlay)] backdrop-blur-[3px]',
         'data-[state=open]:animate-cdt-fade data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:duration-150',
         className
       )}
@@ -66,7 +66,7 @@ function DialogContent({
           if (returnTo.current?.isConnected) returnTo.current.focus()
         }}
         className={cn(
-          'fixed z-50 overflow-auto bg-card text-card-foreground border border-border shadow-[0_24px_64px_rgba(0,0,0,.6)] outline-none',
+          'fixed z-50 overflow-auto bg-card text-card-foreground border border-border shadow-[var(--floating-shadow)] outline-none',
           side === 'right'
             ? 'inset-y-0 right-0 h-dvh w-[min(720px,100vw)] rounded-none data-[state=open]:animate-cdt-drawer-in data-[state=closed]:animate-cdt-drawer-out motion-reduce:animate-none'
             : 'top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-40px)] max-w-[520px] max-h-[calc(100vh-40px)] rounded-2xl data-[state=open]:animate-cdt-pop data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-98 data-[state=closed]:duration-150',

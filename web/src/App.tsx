@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { Notifications } from './components/Notifications'
+import { notifyError } from './lib/notifications'
 import { TopBar } from './components/TopBar'
 import { TaskCenter } from './components/TaskCenter'
 import { Workbench } from './components/Workbench'
@@ -7,12 +9,20 @@ import { ActivityView } from './components/ActivityView'
 import { ServersView } from './components/ServersView'
 import { ServerFormModal } from './components/ServerFormModal'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './components/ui/dialog'
+import { applyTheme } from './lib/theme'
 import { useConduit } from './useConduit'
 
 export default function App() {
   const c = useConduit()
   const { setView } = c
   const [manage, setManage] = useState(false)
+  const theme = c.preferences.settings?.theme ?? window.desktop?.theme ?? 'dark'
+  useEffect(() => {
+    applyTheme(theme)
+  }, [theme])
+  useEffect(() => {
+    if (c.loadError) notifyError(c.loadError)
+  }, [c.loadError])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const modifier = window.desktop?.platform === 'darwin' ? e.metaKey : e.ctrlKey
@@ -28,10 +38,21 @@ export default function App() {
 
   return (
     <div className="relative flex h-dvh min-h-0 flex-col bg-ink overflow-hidden">
-      <TopBar view={c.view} onView={c.setView} hosts={c.hosts} />
-      <main className="relative min-h-0 flex-1 w-full max-w-[1400px] mx-auto overflow-y-auto px-6 pt-7 pb-6">
+      <TopBar
+        view={c.view}
+        onView={c.setView}
+        hosts={c.hosts}
+        theme={theme}
+        onTheme={next => {
+          void c.preferences.update({ theme: next }).catch(() => {})
+        }}
+      />
+      <main className="relative flex min-h-0 flex-1 flex-col w-full max-w-[1400px] mx-auto overflow-y-auto px-6 pt-5 pb-4">
         {/* Keep the workbench mounted so switching pages preserves both directory positions. */}
-        <div hidden={c.view !== 'workbench'}>
+        <div
+          hidden={c.view !== 'workbench'}
+          className={c.view === 'workbench' ? 'flex min-h-0 flex-1 flex-col' : 'hidden'}
+        >
           <Workbench c={c} onManage={() => setManage(true)} />
         </div>
         {c.view === 'plans' && <PlansView c={c} />}
@@ -44,6 +65,7 @@ export default function App() {
           />
         )}
       </main>
+      <Notifications />
       <TaskCenter
         jobs={c.jobs}
         pending={c.pendingTasks}

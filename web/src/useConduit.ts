@@ -10,106 +10,108 @@ import type {
   Probe,
   PullPreset,
   PushPreset,
-  SelectedTarget,
   Server,
   ServerDraft
 } from './types'
-import { emptyDraft, splitKey, targetKey } from './types'
+import { emptyDraft } from './types'
+import { notifyError } from './lib/notifications'
 import { useJobs } from './useJobs'
+import { useWorkspaceSettings } from './useWorkspaceSettings'
 
-export type View = 'workbench' | 'plans' | 'push' | 'pull' | 'log' | 'servers'
+export type View = 'workbench' | 'plans' | 'log'
 export type FormMode = 'new' | (string & {}) | null
-
 export interface Status {
   text: string
   bad: boolean
 }
-
-const PULL_DIR_KEY = 'conduit.pullDir'
-const loadPullDir = () => {
-  try {
-    return localStorage.getItem(PULL_DIR_KEY) || '~/Downloads'
-  } catch {
-    return '~/Downloads'
-  }
+const setStatus = (status: Status | null) => {
+  if (status?.bad) notifyError(status.text)
 }
-
-const RECENT_DIRS_KEY = 'conduit.pullDirs'
-const COMMON_LOCAL_DIRS = ['~/Downloads', '~/Desktop', '~/Documents']
-const loadRecentDirs = (): string[] => {
-  try {
-    const v = JSON.parse(localStorage.getItem(RECENT_DIRS_KEY) || '[]')
-    return Array.isArray(v) ? v.filter(x => typeof x === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-const VIEW_KEY = 'conduit.view'
-const VIEWS: View[] = ['workbench', 'plans', 'log']
-const loadView = (): View => {
-  try {
-    const v = localStorage.getItem(VIEW_KEY) as View | null
-    return v && VIEWS.includes(v) ? v : 'workbench'
-  } catch {
-    return 'workbench'
-  }
-}
+const setPullStatus = setStatus
 
 export function useConduit() {
-  const [view, setView] = useState<View>(loadView)
+  const preferences = useWorkspaceSettings()
+  const { update: updatePreferences } = preferences
+  const view: View = preferences.settings?.view ?? 'workbench'
+  const setView = useCallback(
+    (next: View) => {
+      void updatePreferences({ view: next }).catch(() => {})
+    },
+    [updatePreferences]
+  )
   const [servers, setServers] = useState<Server[]>([])
-  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [presets, setPresets] = useState<Preset[]>([])
+  const [serversError, setServersError] = useState('')
+  const [presetsError, setPresetsError] = useState('')
   const [checks, setChecks] = useState<Record<string, Check>>({})
   const [hosts, setHosts] = useState<HostsInfo | null>(null)
   const [loaded, setLoaded] = useState(false)
-
   const [form, setForm] = useState<FormMode>(null)
   const [draft, setDraft] = useState<ServerDraft>(emptyDraft())
   const [formMsg, setFormMsg] = useState<Status | null>(null)
-
-  const [src, setSrc] = useState('')
-  const [sourceCheck, setSourceCheck] = useState<{
-    path: string
-    info: { size: number; dir: boolean } | null
-  } | null>(null)
-  const [sourceRevision, setSourceRevision] = useState(0)
-  const checkedSource = sourceCheck?.path === src.trim() ? sourceCheck : null
-  const sourceMissing = checkedSource !== null && checkedSource.info === null
-  const checkingSource = src.trim().length > 0 && checkedSource === null
-  const size = checkedSource?.info && !checkedSource.info.dir ? checkedSource.info.size : null
-  const [adhoc, setAdhoc] = useState('')
-
-  const [presets, setPresets] = useState<Preset[]>([])
-  const [appliedPreset, setAppliedPreset] = useState<string | null>(null)
-  const [appliedPullPreset, setAppliedPullPreset] = useState<string | null>(null)
-  const [saveOpen, setSaveOpen] = useState(false)
-  const [saveKind, setSaveKind] = useState<JobKind>('push')
-  const [presetName, setPresetName] = useState('')
-  const [relink, setRelink] = useState(false)
-  const [saveMsg, setSaveMsg] = useState<Status | null>(null)
-
   const [activity, setActivity] = useState<ActivityEvent[]>([])
   const [failedOnly, setFailedOnly] = useState(false)
-  const [verify, setVerify] = useState(false)
-
-  const [pullServerId, setPullServerId] = useState('')
-  const [pullPaths, setPullPaths] = useState<string[]>([])
-  const [pullDir, setPullDir] = useState(loadPullDir)
-  const [recentDirs, setRecentDirs] = useState(loadRecentDirs)
-  const [pullStatus, setPullStatus] = useState<Status | null>(null)
-
-  const [status, setStatus] = useState<Status | null>(null)
-
   const reloadServers = useCallback(async () => {
-    const r = await api.getServers()
-    if (r.ok && r.servers) setServers(r.servers)
+    const result = await api.getServers()
+    setServersError(result.ok ? '' : why(result))
+    if (result.ok) setServers(result.servers)
   }, [])
-
+  const reloadPresets = useCallback(async () => {
+    const result = await api.getPresets()
+    setPresetsError(result.ok ? '' : why(result))
+    if (result.ok) setPresets(result.presets)
+  }, [])
+  const tasks = useJobs(reloadPresets)
+  const { launch } = tasks
+  const busyPresets = useMemo(
+    () =>
+      new Set([
+        ...tasks.jobs.filter(j => !j.done && j.presetId).map(j => j.presetId!),
+        ...[...tasks.pending].filter(k => k.startsWith('preset:')).map(k => k.slice(7))
+      ]),
+    [tasks.jobs, tasks.pending]
+  )
+  useEffect(() => {
+    let active = true
+    void Promise.resolve().then(async () => {
+      await Promise.all([reloadServers(), reloadPresets()])
+      if (active) setLoaded(true)
+      const hosts = await api.getHosts()
+      if (active && hosts.ok) setHosts(hosts)
+    })
+    return () => {
+      active = false
+    }
+  }, [reloadServers, reloadPresets])
+  useEffect(() => {
+    if (view !== 'log') return
+    let active = true
+    const refresh = async () => {
+      const r = await api.getActivity()
+      if (active && r.ok) setActivity(r.events)
+    }
+    void refresh()
+    const timer = setInterval(() => void refresh(), 2000)
+    return () => {
+      active = false
+      clearInterval(timer)
+    }
+  }, [view])
+  const tags = useMemo(
+    () => [...new Set(servers.flatMap(s => s.tags ?? []))].sort((a, b) => a.localeCompare(b)),
+    [servers]
+  )
+  const pullServer = servers.find(s => s.id === preferences.settings?.remoteServerId) ?? servers[0] ?? null
+  const choosePullServer = useCallback(
+    (id: string) => {
+      setPullStatus(null)
+      void updatePreferences({ remoteServerId: id }).catch(() => {})
+    },
+    [updatePreferences]
+  )
   const reorderServers = useCallback(
     async (ids: string[]) => {
-      // Reordering must not change the server already selected in the workbench.
-      setPullServerId(id => id || servers[0]?.id || '')
+      if (pullServer) await updatePreferences({ remoteServerId: pullServer.id })
       const positions = new Map(ids.map((id, i) => [id, i]))
       setServers(list =>
         [...list].sort((a, b) => (positions.get(a.id) ?? ids.length) - (positions.get(b.id) ?? ids.length))
@@ -121,132 +123,8 @@ export function useConduit() {
       }
       return null
     },
-    [servers, reloadServers]
+    [pullServer, updatePreferences, reloadServers]
   )
-
-  const reloadPresets = useCallback(async () => {
-    const r = await api.getPresets()
-    if (r.ok && r.presets) setPresets(r.presets)
-  }, [])
-
-  const tasks = useJobs(reloadPresets)
-  const busyPresets = useMemo(
-    () =>
-      new Set([
-        ...tasks.jobs.filter(j => !j.done && j.presetId).map(j => j.presetId!),
-        ...[...tasks.pending].filter(key => key.startsWith('preset:')).map(key => key.slice(7))
-      ]),
-    [tasks.jobs, tasks.pending]
-  )
-  const pushBusy =
-    tasks.pending.has(appliedPreset ? `preset:${appliedPreset}` : 'push-form') ||
-    (!!appliedPreset && busyPresets.has(appliedPreset))
-  const pullBusy =
-    tasks.pending.has(appliedPullPreset ? `preset:${appliedPullPreset}` : 'pull-form') ||
-    (!!appliedPullPreset && busyPresets.has(appliedPullPreset))
-
-  useEffect(() => {
-    void Promise.all([reloadServers(), reloadPresets()]).then(() => setLoaded(true))
-  }, [reloadServers, reloadPresets])
-  useEffect(() => {
-    void api.getHosts().then(r => {
-      if (r.ok) setHosts(r as HostsInfo)
-    })
-  }, [])
-  useEffect(() => {
-    const path = src.trim()
-    if (!path) return
-    let alive = true
-    const timer = setTimeout(() => {
-      void window.desktop.stat(path).then(
-        info => alive && setSourceCheck({ path, info }),
-        () => alive && setSourceCheck({ path, info: null })
-      )
-    }, 180)
-    return () => {
-      alive = false
-      clearTimeout(timer)
-    }
-  }, [src, sourceRevision])
-  useEffect(() => {
-    try {
-      localStorage.setItem(VIEW_KEY, view)
-    } catch {}
-  }, [view])
-
-  useEffect(() => {
-    if (view !== 'log') return
-    let alive = true
-    const tick = async () => {
-      const r = await api.getActivity()
-      if (alive && r.ok && r.events) setActivity(r.events)
-    }
-    void tick()
-    const id = setInterval(tick, 2000)
-    return () => {
-      alive = false
-      clearInterval(id)
-    }
-  }, [view])
-
-  const toggle = useCallback((serverId: string, dir: string) => {
-    const key = targetKey(serverId, dir)
-    setSel(prev => {
-      const next = new Set(prev)
-      next.has(key) ? next.delete(key) : next.add(key)
-      return next
-    })
-    setAppliedPreset(null)
-  }, [])
-
-  const addPath = useCallback((serverId: string, raw: string): string | null => {
-    const dir = raw.trim().replace(/(.)\/+$/, '$1')
-    if (!dir) return '路径不能为空'
-    if (!dir.startsWith('/') && !dir.startsWith('~')) return '用绝对路径或 ~ 开头'
-    setSel(prev => new Set(prev).add(targetKey(serverId, dir)))
-    setAppliedPreset(null)
-    return null
-  }, [])
-
-  const toggleByKey = useCallback(
-    (key: string) => {
-      const { serverId, dir } = splitKey(key)
-      toggle(serverId, dir)
-    },
-    [toggle]
-  )
-
-  const tags = useMemo(
-    () => [...new Set(servers.flatMap(s => s.tags ?? []))].sort((a, b) => a.localeCompare(b)),
-    [servers]
-  )
-
-  const toggleTag = useCallback(
-    (tag: string) => {
-      const keys = servers.filter(s => s.tags?.includes(tag)).flatMap(s => s.dirs.map(d => targetKey(s.id, d)))
-      setSel(prev => {
-        const next = new Set(prev)
-        const allOn = keys.every(k => next.has(k))
-        keys.forEach(k => {
-          allOn ? next.delete(k) : next.add(k)
-        })
-        return next
-      })
-      setAppliedPreset(null)
-    },
-    [servers]
-  )
-
-  const selected = useMemo<SelectedTarget[]>(() => {
-    const out: SelectedTarget[] = []
-    for (const key of sel) {
-      const { serverId, dir } = splitKey(key)
-      const server = servers.find(s => s.id === serverId)
-      if (server && dir) out.push({ key, server, dir })
-    }
-    return out
-  }, [sel, servers])
-
   const check = useCallback(async (serverId: string) => {
     setChecks(c => ({ ...c, [serverId]: 'testing' }))
     const r = await api.checkServer(serverId)
@@ -381,348 +259,111 @@ export function useConduit() {
       if (!(await window.desktop.confirm(`删除「${s.name}」？`, extra, '删除'))) return
       const r = await api.deleteServer(id)
       if (!r.ok) return
-      setSel(prev => {
-        const next = new Set(prev)
-        for (const k of next) if (splitKey(k).serverId === id) next.delete(k)
-        return next
-      })
       if (form === id) closeForm()
       await reloadServers()
     },
     [servers, form, closeForm, reloadServers]
   )
 
-  const applySource = useCallback((path: string) => {
-    setStatus(null)
-    setSrc(path)
-    setSourceCheck(null)
-    setSourceRevision(v => v + 1)
-  }, [])
-
-  const pickSource = useCallback(async () => {
-    const path = await window.desktop.pick({ defaultPath: src.trim() || undefined })
-    if (path) applySource(path)
-  }, [src, applySource])
-
-  const dropFile = useCallback(
-    (file: File) => {
-      const path = window.desktop.pathForFile(file)
-      if (path) applySource(path)
-    },
-    [applySource]
-  )
-
-  const typeSrc = useCallback((v: string) => {
-    setSrc(v)
-    setSourceCheck(null)
-    setSourceRevision(v => v + 1)
-    setStatus(null)
-  }, [])
-
-  const adhocTargets = useMemo(
-    () =>
-      adhoc
-        .split('\n')
-        .map(s => s.trim())
-        .filter(Boolean),
-    [adhoc]
-  )
-
-  const ready = src.trim().length > 0 && !checkingSource && !sourceMissing && selected.length + adhocTargets.length > 0
-
-  const { launch } = tasks
   const runPush = useCallback(
     async (source: string, targets: api.TargetRef[], presetId?: string) => {
-      if (targets.length === 0) return setStatus({ text: '至少选择一个有效目标', bad: true })
+      if (!targets.length) return setStatus({ text: '至少选择一个有效目标', bad: true })
       const r = await launch(presetId ? `preset:${presetId}` : 'push-form', async () => {
         const chosen = source.trim() || (await window.desktop.pick())
         if (!chosen) return { ok: false, error: '已取消选择来源' }
-        if (!source.trim()) applySource(chosen)
-        const info = await window.desktop.stat(chosen).catch(() => null)
-        if (!info) return { ok: false, error: '来源不存在或无法读取，请重新选择来源' }
-        return api.startJob(chosen, targets, presetId, verify)
+        if (!(await window.desktop.stat(chosen).catch(() => null)))
+          return { ok: false, error: '来源不存在或无法读取，请重新选择来源' }
+        return api.startJob(chosen, targets, presetId)
       })
-      if (!r.ok && why(r) === '已取消选择来源') return setStatus(null)
-      setStatus(r.ok ? { text: '任务已加入任务中心', bad: false } : { text: why(r), bad: true })
-    },
-    [launch, verify, applySource]
-  )
-
-  const push = useCallback(() => {
-    if (!ready || pushBusy) return
-    void runPush(
-      src,
-      [...selected.map(t => ({ serverId: t.server.id, dir: t.dir })), ...adhocTargets],
-      appliedPreset ?? undefined
-    )
-  }, [ready, pushBusy, src, selected, adhocTargets, appliedPreset, runPush])
-
-  const applyPreset = useCallback(
-    async (p: PushPreset, run: boolean) => {
-      const live: { serverId: string; dir: string }[] = []
-      for (const t of p.targets) {
-        const s = servers.find(x => x.id === t.serverId)
-        if (!s) continue
-        const dir = t.dir ?? s.dirs[0]
-        if (dir) live.push({ serverId: s.id, dir })
-      }
-      if (run) {
-        if (live.length !== p.targets.length) {
-          return setStatus({ text: '方案中有目标已失效，请编辑方案后重试', bad: true })
-        }
-        await runPush(p.src, [...live, ...p.adhoc], p.id)
-        return
-      }
-      const missing = p.targets.length - live.length
-      setSel(new Set(live.map(t => targetKey(t.serverId, t.dir))))
-      setAdhoc(p.adhoc.join('\n'))
-      setSrc(p.src)
-      setSourceCheck(null)
-      setSourceRevision(v => v + 1)
-      setAppliedPreset(p.id)
-      setView('workbench')
-      setStatus(missing > 0 ? { text: `方案里有 ${missing} 个目标已失效（服务器被删），已跳过`, bad: true } : null)
-    },
-    [servers, runPush]
-  )
-
-  const removePreset = useCallback(
-    async (id: string) => {
-      const p = presets.find(x => x.id === id)
-      if (!p || !(await window.desktop.confirm(`删除方案「${p.name}」？`, undefined, '删除'))) return
-      const r = await api.deletePreset(id)
-      if (!r.ok) return
-      if (appliedPreset === id) setAppliedPreset(null)
-      if (appliedPullPreset === id) setAppliedPullPreset(null)
-      await reloadPresets()
-    },
-    [presets, appliedPreset, appliedPullPreset, reloadPresets]
-  )
-
-  // 先改本地顺序，写盘失败再从服务端拉回来
-  const reorderPresets = useCallback(
-    async (ids: string[]) => {
-      const pos = new Map(ids.map((id, i) => [id, i]))
-      setPresets(list => {
-        const slots = list.filter(p => pos.has(p.id)).sort((a, b) => pos.get(a.id)! - pos.get(b.id)!)
-        let k = 0
-        return list.map(p => (pos.has(p.id) ? slots[k++] : p))
-      })
-      const r = await api.reorderPresets(ids)
-      if (!r.ok) await reloadPresets()
-    },
-    [reloadPresets]
-  )
-
-  const pullServer = useMemo(
-    () => servers.find(s => s.id === pullServerId) ?? servers[0] ?? null,
-    [servers, pullServerId]
-  )
-
-  const choosePullServer = useCallback((id: string) => {
-    setPullServerId(id)
-    setPullPaths([])
-    setPullStatus(null)
-    setAppliedPullPreset(null)
-  }, [])
-
-  const togglePullPath = useCallback((path: string) => {
-    setPullPaths(prev => (prev.includes(path) ? prev.filter(p => p !== path) : [...prev, path]))
-    setPullStatus(null)
-    setAppliedPullPreset(null)
-  }, [])
-
-  const pullReady = !!pullServer && pullPaths.length > 0 && pullDir.trim().length > 0
-
-  const runPull = useCallback(
-    async (serverId: string, paths: string[], localDir: string, presetId?: string) => {
-      if (!serverId || paths.length === 0 || !localDir.trim()) return
-      const r = await launch(presetId ? `preset:${presetId}` : 'pull-form', () =>
-        api.startPull(serverId, paths, localDir.trim(), presetId)
-      )
-      if (!r.ok) return setPullStatus({ text: why(r), bad: true })
-      setPullStatus({ text: '任务已加入任务中心', bad: false })
-      const dir = localDir.trim().replace(/(.)\/+$/, '$1')
-      const recent = [dir, ...loadRecentDirs().filter(d => d !== dir)].slice(0, 5)
-      setRecentDirs(recent)
-      try {
-        localStorage.setItem(PULL_DIR_KEY, dir)
-        localStorage.setItem(RECENT_DIRS_KEY, JSON.stringify(recent))
-      } catch {}
+      setStatus(r.ok || why(r) === '已取消选择来源' ? null : { text: why(r), bad: true })
     },
     [launch]
   )
-
-  const pull = useCallback(() => {
-    if (!pullReady || !pullServer || pullBusy) return
-    void runPull(pullServer.id, pullPaths, pullDir, appliedPullPreset ?? undefined)
-  }, [pullReady, pullBusy, pullServer, pullPaths, pullDir, appliedPullPreset, runPull])
-
+  const runPull = useCallback(
+    async (serverId: string, paths: string[], localDir: string, presetId?: string) => {
+      if (!serverId || !paths.length || !localDir.trim()) return
+      const r = await launch(presetId ? `preset:${presetId}` : 'pull-form', () =>
+        api.startPull(serverId, paths, localDir.trim(), presetId)
+      )
+      setPullStatus(r.ok ? null : { text: why(r), bad: true })
+    },
+    [launch]
+  )
+  const applyPreset = useCallback(
+    async (preset: PushPreset) => {
+      const targets: api.TargetRef[] = []
+      for (const target of preset.targets) {
+        const server = servers.find(s => s.id === target.serverId)
+        const dir = target.dir ?? server?.dirs[0]
+        if (!server || !dir) return setStatus({ text: '方案中有目标已失效，请编辑方案后重试', bad: true })
+        targets.push({ serverId: server.id, dir })
+      }
+      await runPush(preset.src, [...targets, ...preset.adhoc], preset.id)
+    },
+    [servers, runPush]
+  )
   const applyPullPreset = useCallback(
-    async (p: PullPreset, run: boolean) => {
-      if (!servers.some(s => s.id === p.serverId)) {
-        return setPullStatus({ text: `方案「${p.name}」里的服务器已被删除`, bad: true })
-      }
-      if (run) {
-        await runPull(p.serverId, p.paths, p.localDir, p.id)
-        return
-      }
-      setView('workbench')
-      setPullServerId(p.serverId)
-      setPullPaths(p.paths)
-      setPullDir(p.localDir)
-      setAppliedPullPreset(p.id)
-      setPullStatus(null)
+    async (preset: PullPreset) => {
+      if (!servers.some(s => s.id === preset.serverId))
+        return setPullStatus({ text: `方案「${preset.name}」里的服务器已被删除`, bad: true })
+      await runPull(preset.serverId, preset.paths, preset.localDir, preset.id)
     },
     [servers, runPull]
   )
-
-  const savePreset = useCallback(async () => {
-    const typed = presetName.trim()
-    const r =
-      saveKind === 'pull'
-        ? await api.createPreset({
-            kind: 'pull',
-            name: typed || (pullServer ? `从 ${pullServer.name} 拉取` : '新方案'),
-            serverId: pullServer?.id ?? '',
-            paths: pullPaths,
-            localDir: pullDir.trim()
-          })
-        : await api.createPreset({
-            kind: 'push',
-            name: typed || src.split('/').filter(Boolean).pop() || '新方案',
-            src: relink ? '' : src.trim(),
-            targets: selected.map(t => ({ serverId: t.server.id, dir: t.dir })),
-            adhoc: adhocTargets
-          })
-    if (!r.ok) return setSaveMsg({ text: why(r), bad: true })
-    setSaveOpen(false)
-    setPresetName('')
-    setSaveMsg(null)
-    if (r.id) (saveKind === 'pull' ? setAppliedPullPreset : setAppliedPreset)(r.id)
-    await reloadPresets()
-  }, [saveKind, presetName, pullServer, pullPaths, pullDir, src, selected, adhocTargets, relink, reloadPresets])
-
-  const pushPresets = useMemo(() => presets.filter((p): p is PushPreset => p.kind === 'push'), [presets])
-  const pullPresets = useMemo(() => presets.filter((p): p is PullPreset => p.kind === 'pull'), [presets])
-
-  const pullStatusText = useMemo<Status>(() => {
-    if (pullStatus) return pullStatus
-    if (!pullServer) return { text: '还没有服务器', bad: false }
-    if (pullPaths.length === 0) return { text: '在上面勾选要拉取的文件或目录', bad: false }
-    if (!pullDir.trim()) return { text: '填一个本地目录', bad: false }
-    return { text: `${pullServer.name} · ${pullPaths.length} 项 → ${pullDir.trim()}`, bad: false }
-  }, [pullStatus, pullServer, pullPaths.length, pullDir])
-
-  const pickPullDir = useCallback(async () => {
-    const path = await window.desktop.pick({ dir: true, defaultPath: pullDir.trim() || undefined })
-    if (path) setPullDir(path)
-  }, [pullDir])
-
-  const statusText = useMemo<Status>(() => {
-    if (status) return status
-    const count = selected.length + adhocTargets.length
-    if (!src.trim()) return { text: '先选择本地来源', bad: false }
-    if (checkingSource) return { text: '正在检查来源…', bad: false }
-    if (sourceMissing) return { text: '来源不存在或无法读取，请重新选择', bad: true }
-    if (count === 0) return { text: '还没选目标', bad: false }
-    const name = src.split('/').filter(Boolean).pop() || src
-    const head = [name, size != null ? api.formatSize(size) : null].filter(Boolean).join(' · ')
-    return { text: `${head} → ${count} 个目标`, bad: false }
-  }, [status, src, size, checkingSource, sourceMissing, selected.length, adhocTargets.length])
-
+  const removePreset = useCallback(
+    async (id: string) => {
+      const preset = presets.find(p => p.id === id)
+      if (!preset || !(await window.desktop.confirm(`删除方案「${preset.name}」？`, undefined, '删除'))) return
+      const result = await api.deletePreset(id)
+      if (!result.ok) return setStatus({ text: why(result), bad: true })
+      await reloadPresets()
+    },
+    [presets, reloadPresets]
+  )
   return {
     view,
     setView,
-    runPush,
-    runPull,
-    reloadPresets,
-    reorderServers,
+    preferences,
+    loadError: [serversError, presetsError, preferences.error].filter(Boolean).join('\n'),
     loaded,
     servers,
+    presets,
     tags,
-    selected,
-    sel,
-    toggle,
-    toggleByKey,
-    toggleTag,
-    addPath,
-    pinPath,
-    unpinPath,
     checks,
-    probeOf,
-    check,
-    checkAll,
     hosts,
     form,
     draft,
-    patchDraft,
     formMsg,
+    patchDraft,
     openNew,
     openEdit,
     closeForm,
     checkForm,
     submitForm,
     remove,
-    src,
-    setSrc: typeSrc,
-    size,
-    pickSource,
-    dropFile,
-    adhoc,
-    setAdhoc,
-    adhocTargets,
-    jobs: tasks.jobs,
-    pendingTasks: tasks.pending,
-    busyPresets,
-    pushBusy,
-    pullBusy,
-    ready,
-    sourceMissing,
-    push,
-    retry: tasks.retry,
-    dismissJob: tasks.dismissJob,
-    cancelJob: tasks.cancelJob,
-    revealJob: tasks.revealJob,
+    probeOf,
+    check,
+    checkAll,
+    reloadPresets,
+    reorderServers,
+    pinPath,
+    unpinPath,
     pullServer,
     choosePullServer,
-    pullPaths,
-    togglePullPath,
-    pullDir,
-    setPullDir,
-    localDirOptions: [...new Set([...recentDirs, ...COMMON_LOCAL_DIRS])],
-    pickPullDir,
-    pullReady,
-    pull,
-    pullStatusText,
-    verify,
-    toggleVerify: () => setVerify(v => !v),
+    runPush,
+    runPull,
+    applyPreset,
+    applyPullPreset,
+    removePreset,
+    busyPresets,
+    jobs: tasks.jobs,
+    pendingTasks: tasks.pending,
+    dismissJob: tasks.dismissJob,
+    cancelJob: tasks.cancelJob,
+    retry: tasks.retry,
+    revealJob: tasks.revealJob,
     activity,
     failedOnly,
-    setFailedOnly,
-    presets,
-    pushPresets,
-    pullPresets,
-    appliedPreset,
-    applyPreset,
-    removePreset,
-    reorderPresets,
-    appliedPullPreset,
-    applyPullPreset,
-    saveOpen,
-    saveKind,
-    openSave: (kind: JobKind) => {
-      setSaveKind(kind)
-      setSaveMsg(null)
-      setSaveOpen(true)
-    },
-    closeSave: () => setSaveOpen(false),
-    presetName,
-    setPresetName,
-    relink,
-    toggleRelink: () => setRelink(v => !v),
-    saveMsg,
-    savePreset,
-    statusText
+    setFailedOnly
   }
 }

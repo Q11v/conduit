@@ -12,7 +12,7 @@ interface Props {
 }
 
 const action =
-  'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-mute cursor-pointer hover:bg-white/8 hover:text-fg disabled:opacity-35 disabled:cursor-not-allowed'
+  'flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-mute cursor-pointer hover:bg-fg/8 hover:text-fg disabled:opacity-35 disabled:cursor-not-allowed'
 
 export function DirectoryBar({ title, value, path, loading, onChange, onGo, onPick }: Props) {
   const [editing, setEditing] = useState(false)
@@ -65,7 +65,7 @@ export function DirectoryBar({ title, value, path, loading, onChange, onGo, onPi
           >
             <button
               type="button"
-              className="h-7 shrink-0 rounded px-2 text-xs text-mute hover:bg-white/8 hover:text-fg cursor-pointer"
+              className="h-7 shrink-0 rounded px-2 text-xs text-mute hover:bg-fg/8 hover:text-fg cursor-pointer"
               aria-label={`${title}根目录`}
               onClick={e => {
                 e.stopPropagation()
@@ -80,7 +80,7 @@ export function DirectoryBar({ title, value, path, loading, onChange, onGo, onPi
                 <button
                   type="button"
                   title={`/${segments.slice(0, index + 1).join('/')}`}
-                  className={`h-7 max-w-[180px] truncate rounded px-1.5 text-[13px] hover:bg-white/8 cursor-pointer ${index === segments.length - 1 ? 'text-fg' : 'text-mute'}`}
+                  className={`h-7 max-w-[180px] truncate rounded px-1.5 text-[13px] hover:bg-fg/8 cursor-pointer ${index === segments.length - 1 ? 'text-fg' : 'text-mute'}`}
                   onClick={e => {
                     e.stopPropagation()
                     onGo(`/${segments.slice(0, index + 1).join('/')}`)

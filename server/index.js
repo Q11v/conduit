@@ -29,14 +29,20 @@ import {
 } from './presets.js'
 import { log, fail, event, recentEvents, LOG_FILE } from './log.js'
 import { validateDeletePaths } from './file-actions.js'
+import { SETTINGS_PATH } from './settings.js'
+import { createScheduler } from './scheduler.js'
 import { createJobRunner } from './job-runner.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const DIST = join(ROOT, 'web', 'dist')
 const MAX_PARALLEL = Math.max(1, Math.min(16, Math.floor(Number(process.env.CONDUIT_PARALLEL) || 4)))
 
+const scheduler = createScheduler(MAX_PARALLEL)
 const jobs = new Map()
 const taskListeners = new Set()
+let restoring = false
+let fileOperations = 0
+let pendingOperations = 0
 
 const expandHome = p => (p === '~' ? homedir() : p.startsWith('~/') ? join(homedir(), p.slice(2)) : p)
 
@@ -116,6 +122,7 @@ function startTask(job, t, onProgress) {
 
 const { runJob, cancelJob } = createJobRunner({
   parallel: MAX_PARALLEL,
+  scheduler,
   startTask,
   publish,
   event,
@@ -125,7 +132,9 @@ const { runJob, cancelJob } = createJobRunner({
       path: posix.normalize(t.dir),
       read: job.kind === 'pull'
     }
-    return job.kind === 'pull' ? [remote, { scope: 'local', path: resolve(job.localDir) }] : [remote]
+    return job.kind === 'pull'
+      ? [remote, { scope: 'local', path: resolve(job.localDir) }]
+      : [remote, { scope: 'local', path: resolve(job.source), read: true }]
   }
 })
 
@@ -143,6 +152,22 @@ app.use('*', async (c, next) => {
   await next()
   if (c.req.path.startsWith('/api') && !(c.req.path === '/api/activity' && c.res.ok)) {
     log('http', `${c.req.method} ${c.req.path} → ${c.res.status} ${Date.now() - started}ms`)
+  }
+})
+
+app.use('/api/*', async (c, next) => {
+  const mutatingTask =
+    c.req.method === 'POST' &&
+    (/^\/api\/(jobs|pulls)$/.test(c.req.path) ||
+      c.req.path === '/api/files/delete' ||
+      /^\/api\/jobs\/[^/]+\/retry$/.test(c.req.path))
+  if (!mutatingTask) return next()
+  if (restoring) return c.json({ error: '正在恢复配置，请稍后重试' }, 409)
+  pendingOperations++
+  try {
+    await next()
+  } finally {
+    pendingOperations--
   }
 })
 
@@ -205,6 +230,7 @@ app.get('/api/hosts', c =>
     hosts: sshConfigHosts(),
     configPath: CONFIG_PATH,
     presetsPath: PRESETS_PATH,
+    settingsPath: SETTINGS_PATH,
     home: homedir(),
     keychain: keychainAvailable,
     logFile: LOG_FILE,
@@ -326,12 +352,20 @@ app.post('/api/files/delete', async c => {
   try {
     const { serverId, directory, paths } = await c.req.json()
     const files = validateDeletePaths(directory, paths)
-    if ([...jobs.values()].some(job => !snapshot(job).done))
-      return c.json({ ok: false, reason: '传输进行中，请完成后再删除' }, 409)
     const server = (await loadServers()).find(s => s.id === serverId)
     if (!server) return c.json({ ok: false, reason: '服务器不存在' }, 404)
     const conn = { ...(await withSecret(server)), trace: [] }
-    const result = await deleteRemote(conn, directory, files)
+    if (restoring) return c.json({ reason: '正在恢复配置，请稍后重试' }, 409)
+    fileOperations++
+    let result
+    try {
+      result = await scheduler.enqueue(
+        files.map(path => ({ scope: `remote:${sshEndpoint(server.host, server.port)}`, path })),
+        () => deleteRemote(conn, directory, files)
+      )
+    } finally {
+      fileOperations--
+    }
     event(
       result.ok ? 'DELETE' : 'FAIL',
       `${server.host} 删除 ${files.length} 项${result.ok ? '完成' : '失败'}`,
@@ -366,6 +400,7 @@ app.get('/api/jobs/events', c =>
 )
 
 app.post('/api/jobs', async c => {
+  if (restoring) return c.json({ error: '正在恢复配置，请稍后重试' }, 409)
   const { source: rawSource, targets, presetId, verify } = await c.req.json()
   const source = expandHome(String(rawSource || '').trim())
   if (!source) return c.json({ error: '缺少 source' }, 400)
@@ -389,6 +424,7 @@ app.post('/api/jobs', async c => {
 
   const meta = await jobMeta(presetId)
   if (activePreset(presetId)) return c.json({ error: '这个方案已有任务在进行中' }, 409)
+  if (restoring) return c.json({ error: '正在恢复配置，请稍后重试' }, 409)
   const job = {
     ...meta,
     id: randomUUID(),
@@ -414,6 +450,7 @@ app.post('/api/jobs', async c => {
 })
 
 app.post('/api/pulls', async c => {
+  if (restoring) return c.json({ error: '正在恢复配置，请稍后重试' }, 409)
   const { serverId, paths, localDir, presetId } = await c.req.json()
   const s = (await loadServers()).find(x => x.id === serverId)
   if (!s) return c.json({ error: `服务器不存在: ${serverId}` }, 400)
@@ -436,6 +473,7 @@ app.post('/api/pulls', async c => {
 
   const meta = await jobMeta(presetId)
   if (activePreset(presetId)) return c.json({ error: '这个方案已有任务在进行中' }, 409)
+  if (restoring) return c.json({ error: '正在恢复配置，请稍后重试' }, 409)
   const job = {
     ...meta,
     id: randomUUID(),
@@ -518,6 +556,43 @@ app.get('/api/jobs/:id/events', c => {
     }
   })
 })
+
+export async function withIdleTransfers(operation) {
+  if (restoring || fileOperations || pendingOperations || [...jobs.values()].some(job => !snapshot(job).done))
+    throw new Error('请先完成传输和文件操作，再恢复配置')
+  restoring = true
+  try {
+    return await operation()
+  } finally {
+    restoring = false
+  }
+}
+
+export async function trashLocalFiles(files, trashItem) {
+  if (restoring) throw new Error('正在恢复配置，请稍后重试')
+  fileOperations++
+  try {
+    return await scheduler.enqueue(
+      files.map(path => ({ scope: 'local', path: resolve(path) })),
+      async () => {
+        const deleted = [],
+          errors = []
+        for (const file of files) {
+          try {
+            await trashItem(file)
+            deleted.push(file)
+          } catch (err) {
+            errors.push(`${file}: ${err.message}`)
+          }
+        }
+        event(errors.length ? 'FAIL' : 'DELETE', `本地移到废纸篓 ${deleted.length}/${files.length} 项`, errors)
+        return errors.length ? { ok: false, deleted, error: errors.join('\n') } : { ok: true, deleted }
+      }
+    )
+  } finally {
+    fileOperations--
+  }
+}
 
 export function start(port) {
   return new Promise((resolve, reject) => {

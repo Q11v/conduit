@@ -70,7 +70,7 @@ function ServerRow({
   const sub = subline(s)
 
   return (
-    <div className="flex items-center gap-4 px-4 py-3 border-t hair first:border-t-0 transition-colors duration-150 hover:bg-[rgba(255,255,255,.025)]">
+    <div className="flex items-center gap-4 px-4 py-3 border-t hair first:border-t-0 transition-colors duration-150 hover:bg-[rgba(var(--surface-rgb),.025)]">
       {leading}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 min-w-0">
@@ -198,7 +198,7 @@ function MenuItem({
       onClick={onClick}
       disabled={disabled}
       className={`disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2 w-full px-2.5 py-1.5 border-0 rounded-lg bg-transparent text-left text-[13px] cursor-pointer ${
-        danger ? 'text-err-text hover:bg-[rgba(226,86,86,.14)]' : 'text-fg-soft hover:bg-[rgba(255,255,255,.08)]'
+        danger ? 'text-err-text hover:bg-[rgba(226,86,86,.14)]' : 'text-fg-soft hover:bg-[rgba(var(--surface-rgb),.08)]'
       }`}
     >
       {children}
@@ -273,11 +273,11 @@ export function ServersView(p: Props) {
       </div>
 
       {!p.loaded ? (
-        <div className="px-5 py-10 border border-dashed border-[rgba(255,255,255,.08)] rounded-2xl text-center text-[13px] text-mute-4">
+        <div className="px-5 py-10 border border-dashed border-[rgba(var(--surface-rgb),.08)] rounded-2xl text-center text-[13px] text-mute-4">
           载入中…
         </div>
       ) : count === 0 ? (
-        <div className="px-5 py-10 border border-dashed border-[rgba(255,255,255,.14)] rounded-2xl text-center">
+        <div className="px-5 py-10 border border-dashed border-[rgba(var(--surface-rgb),.14)] rounded-2xl text-center">
           <p className="m-0 mb-2 text-[13px] text-fg-dim">还没有配置服务器</p>
           <p className="m-0 text-[13px] leading-relaxed text-mute-2">
             点右上角「新增服务器」填一台。主机可以用 ~/.ssh/config 里的别名，
@@ -347,7 +347,7 @@ export function ServersView(p: Props) {
                       disabled={savingOrder || shown.length < 2}
                       aria-label={`拖动调整 ${s.name} 的顺序`}
                       title="拖动排序；也可在更多菜单中上移、下移"
-                      className="shrink-0 cursor-grab rounded p-1 text-mute-4 hover:bg-white/5 hover:text-fg active:cursor-grabbing disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="shrink-0 cursor-grab rounded p-1 text-mute-4 hover:bg-fg/5 hover:text-fg active:cursor-grabbing disabled:opacity-30 disabled:cursor-not-allowed"
                       onDragStart={e => {
                         e.dataTransfer.effectAllowed = 'move'
                         e.dataTransfer.setData('application/x-conduit-server', s.id)

@@ -50,7 +50,7 @@ function StatusDot({ t }: { t: JobTarget }) {
   }
   return (
     <span
-      className={`w-1.5 h-1.5 rounded-full ${t.status === 'running' ? 'bg-violet-text animate-cdt-pulse' : 'bg-[rgba(255,255,255,.2)]'}`}
+      className={`w-1.5 h-1.5 rounded-full ${t.status === 'running' ? 'bg-violet-text animate-cdt-pulse' : 'bg-[rgba(var(--surface-rgb),.2)]'}`}
     />
   )
 }
@@ -230,7 +230,7 @@ export function PushProgress({ job, onDismiss, onCancel, onRetry, onReveal, pend
                       {pulling && !oneHost && <span className="shrink-0 text-[12.5px] text-fg-dim">{t.label}</span>}
                       {!pulling && <span className="shrink-0 text-[13px] whitespace-nowrap">{t.label}</span>}
                       <span
-                        className={`min-w-0 truncate font-mono text-[12px] ${pulling ? 'text-fg' : 'px-1.5 py-px rounded bg-[rgba(255,255,255,.07)] text-mute-2'}`}
+                        className={`min-w-0 truncate font-mono text-[12px] ${pulling ? 'text-fg' : 'px-1.5 py-px rounded bg-[rgba(var(--surface-rgb),.07)] text-mute-2'}`}
                         title={t.dir}
                       >
                         {pulling ? name : t.label !== t.spec ? t.dir : ''}
@@ -238,7 +238,7 @@ export function PushProgress({ job, onDismiss, onCancel, onRetry, onReveal, pend
                     </span>
 
                     {showBar ? (
-                      <div className="h-1 rounded-full overflow-hidden bg-[rgba(255,255,255,.1)]">
+                      <div className="h-1 rounded-full overflow-hidden bg-[rgba(var(--surface-rgb),.1)]">
                         <div
                           className="h-full rounded-full transition-[width] duration-200"
                           style={{

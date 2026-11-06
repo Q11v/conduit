@@ -1,10 +1,12 @@
-import { readFile, writeFile, mkdir, rename } from 'node:fs/promises'
+import { readJson, writeJson, withDataLock } from './json-store.js'
 import { homedir } from 'node:os'
-import { join, dirname } from 'node:path'
+import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { parseTarget, cleanPullPaths, checkLocalDir } from './targets.js'
 
-export const PRESETS_PATH = process.env.CONDUIT_PRESETS || join(homedir(), '.config', 'conduit', 'presets.json')
+export const PRESETS_PATH =
+  process.env.CONDUIT_PRESETS ||
+  join(process.env.CONDUIT_DATA_DIR || join(homedir(), '.config', 'conduit'), 'presets.json')
 
 function normalizeTarget(t) {
   if (typeof t === 'string') return t ? { serverId: t, dir: null } : null
@@ -14,46 +16,62 @@ function normalizeTarget(t) {
   return null
 }
 
+export const isPresetData = value =>
+  Array.isArray(value) &&
+  value.every(
+    p =>
+      p &&
+      typeof p.id === 'string' &&
+      p.id &&
+      typeof p.name === 'string' &&
+      p.name &&
+      (p.kind === undefined || ['push', 'pull'].includes(p.kind)) &&
+      (p.src === undefined || typeof p.src === 'string') &&
+      (p.serverId === undefined || typeof p.serverId === 'string') &&
+      (p.localDir === undefined || typeof p.localDir === 'string') &&
+      (p.paths === undefined || (Array.isArray(p.paths) && p.paths.every(x => typeof x === 'string'))) &&
+      (p.targets === undefined ||
+        (Array.isArray(p.targets) &&
+          p.targets.every(
+            t =>
+              typeof t === 'string' ||
+              (t &&
+                typeof t.serverId === 'string' &&
+                (t.dir === undefined || t.dir === null || typeof t.dir === 'string'))
+          ))) &&
+      (p.adhoc === undefined || (Array.isArray(p.adhoc) && p.adhoc.every(x => typeof x === 'string')))
+  )
+
 export async function loadPresets() {
-  try {
-    const parsed = JSON.parse(await readFile(PRESETS_PATH, 'utf8'))
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .filter(p => p?.id && p?.name)
-      .map(p => {
-        const lastRun = typeof p.lastRun === 'string' ? p.lastRun : null
-        if (p.kind === 'pull') {
-          return {
-            id: p.id,
-            name: p.name,
-            kind: 'pull',
-            serverId: typeof p.serverId === 'string' ? p.serverId : '',
-            paths: Array.isArray(p.paths) ? p.paths.filter(x => typeof x === 'string' && x) : [],
-            localDir: typeof p.localDir === 'string' ? p.localDir : '',
-            lastRun
-          }
-        }
+  const parsed = await readJson(PRESETS_PATH, isPresetData, [])
+  return parsed
+    .filter(p => p?.id && p?.name)
+    .map(p => {
+      const lastRun = typeof p.lastRun === 'string' ? p.lastRun : null
+      if (p.kind === 'pull') {
         return {
           id: p.id,
           name: p.name,
-          kind: 'push',
-          src: typeof p.src === 'string' ? p.src : '',
-          targets: Array.isArray(p.targets) ? p.targets.map(normalizeTarget).filter(Boolean) : [],
-          adhoc: Array.isArray(p.adhoc) ? p.adhoc.filter(x => typeof x === 'string') : [],
+          kind: 'pull',
+          serverId: typeof p.serverId === 'string' ? p.serverId : '',
+          paths: Array.isArray(p.paths) ? p.paths.filter(x => typeof x === 'string' && x) : [],
+          localDir: typeof p.localDir === 'string' ? p.localDir : '',
           lastRun
         }
-      })
-  } catch {
-    return []
-  }
+      }
+      return {
+        id: p.id,
+        name: p.name,
+        kind: 'push',
+        src: typeof p.src === 'string' ? p.src : '',
+        targets: Array.isArray(p.targets) ? p.targets.map(normalizeTarget).filter(Boolean) : [],
+        adhoc: Array.isArray(p.adhoc) ? p.adhoc.filter(x => typeof x === 'string') : [],
+        lastRun
+      }
+    })
 }
 
-async function persist(list) {
-  await mkdir(dirname(PRESETS_PATH), { recursive: true })
-  const tmp = `${PRESETS_PATH}.${randomUUID()}.tmp`
-  await writeFile(tmp, JSON.stringify(list, null, 2) + '\n', 'utf8')
-  await rename(tmp, PRESETS_PATH)
-}
+const persist = list => writeJson(PRESETS_PATH, list, isPresetData)
 
 function clean(input) {
   const name = String(input.name ?? '').trim()
@@ -84,16 +102,13 @@ function clean(input) {
   return { name, kind: 'push', src, targets, adhoc }
 }
 
-let pendingWrite = Promise.resolve()
 function mutate(change) {
-  const operation = pendingWrite.then(async () => {
+  return withDataLock(async () => {
     const list = await loadPresets()
     const result = change(list)
     await persist(list)
     return result
   })
-  pendingWrite = operation.catch(() => {})
-  return operation
 }
 
 export function addPreset(input) {

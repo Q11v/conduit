@@ -6,11 +6,12 @@ import type { Probe } from '../types'
 type BtnVariant = 'ghost' | 'primary' | 'violet' | 'cyan'
 
 const VARIANT: Record<BtnVariant, string> = {
-  ghost: 'border hair-3 bg-[rgba(255,255,255,.06)] text-fg-soft hover:bg-[rgba(255,255,255,.12)] hover:text-white',
+  ghost:
+    'border hair-3 bg-[rgba(var(--surface-rgb),.06)] text-fg-soft hover:bg-[rgba(var(--surface-rgb),.12)] hover:text-fg',
   primary:
     'border-0 bg-linear-[150deg,var(--color-violet-btn),var(--color-violet-lo)] text-white font-medium hover:brightness-90',
   violet:
-    'border border-[rgba(124,124,245,.4)] bg-[rgba(124,124,245,.14)] text-violet-text font-medium hover:bg-[rgba(124,124,245,.24)] hover:text-white',
+    'border border-[rgba(124,124,245,.4)] bg-[rgba(124,124,245,.14)] text-violet-text font-medium hover:bg-[rgba(124,124,245,.24)] hover:text-fg',
   cyan: 'border-0 bg-linear-[150deg,var(--color-cyan),var(--color-cyan-lo)] text-cyan-ink font-bold hover:brightness-105'
 }
 
@@ -42,7 +43,7 @@ export function IconBtn({ danger, className = '', children, ...rest }: IconBtnPr
       className={`flex shrink-0 items-center justify-center p-0 border-0 rounded-[7px] bg-transparent text-mute-3 cursor-pointer transition-all duration-150 ${
         danger
           ? 'hover:bg-[rgba(226,86,86,.16)] hover:text-err-text'
-          : 'hover:bg-[rgba(255,255,255,.1)] hover:text-white'
+          : 'hover:bg-[rgba(var(--surface-rgb),.1)] hover:text-fg'
       } ${className}`}
     >
       {children}
@@ -148,7 +149,7 @@ export function ProbeBadge({ probe, title, className = '' }: { probe: Probe; tit
 
 const CHIP_TONE = {
   on: 'border-[rgba(124,124,245,.45)] bg-[rgba(124,124,245,.14)] text-violet-text',
-  off: 'hair-2 bg-[rgba(255,255,255,.03)] text-mute-2 hover:text-fg-dim hover:border-[rgba(255,255,255,.2)]'
+  off: 'hair-2 bg-[rgba(var(--surface-rgb),.03)] text-mute-2 hover:text-fg-dim hover:border-[rgba(var(--surface-rgb),.2)]'
 }
 
 export function Chip({
@@ -179,7 +180,7 @@ export function Chip({
     return (
       <span
         title={title}
-        className={`flex min-w-0 max-w-full shrink-0 items-center gap-1.5 border font-mono text-[12px] hair-2 bg-[rgba(255,255,255,.03)] text-fg-dim ${box}`}
+        className={`flex min-w-0 max-w-full shrink-0 items-center gap-1.5 border font-mono text-[12px] hair-2 bg-[rgba(var(--surface-rgb),.03)] text-fg-dim ${box}`}
       >
         {dot && <span className="shrink-0 w-1.5 h-1.5 rounded-full transition-colors" style={{ background: dot }} />}
         <span className="min-w-0 truncate">{children}</span>
@@ -248,7 +249,7 @@ export function PrimaryAction({
       style={{
         background: live
           ? 'linear-gradient(150deg,var(--color-violet-btn),var(--color-violet-lo))'
-          : 'rgba(255,255,255,.07)',
+          : 'rgba(var(--surface-rgb),.07)',
         color: live ? '#fff' : 'var(--color-mute-4)',
         cursor: live ? 'pointer' : 'default',
         boxShadow: live ? '0 4px 20px rgba(124,105,245,.36)' : 'none'
@@ -287,7 +288,7 @@ export function InlineAdd({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex shrink-0 items-center gap-1 h-6 px-2 border border-dashed border-[rgba(255,255,255,.16)] rounded-md bg-transparent text-[12px] text-mute-3 cursor-pointer transition-colors duration-150 hover:border-[rgba(124,124,245,.6)] hover:text-violet-text"
+        className="flex shrink-0 items-center gap-1 h-6 px-2 border border-dashed border-[rgba(var(--surface-rgb),.16)] rounded-md bg-transparent text-[12px] text-mute-3 cursor-pointer transition-colors duration-150 hover:border-[rgba(124,124,245,.6)] hover:text-violet-text"
       >
         <Plus size={11} />
         {label}

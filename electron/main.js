@@ -1,13 +1,16 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, dialog, nativeTheme, screen } from 'electron'
 import { execFileSync } from 'node:child_process'
-import { readdir, stat } from 'node:fs/promises'
+import { readdir, stat, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path, { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { initialWindowBounds } from './window-layout.js'
+import { configureEnvironment } from './environment.js'
 import { validateDeletePaths } from '../server/file-actions.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+configureEnvironment(process.env, homedir())
 const DEV_URL = process.env.CONDUIT_DEV_URL
 const PORT = Number(process.env.CONDUIT_PORT || (DEV_URL ? 4323 : 4322))
 
@@ -26,16 +29,24 @@ function inheritShellEnv() {
   } catch {}
 }
 
+let currentTheme = 'dark'
 let win = null
 let url = null
 
+function applyNativeTheme(theme) {
+  currentTheme = theme === 'light' ? 'light' : 'dark'
+  nativeTheme.themeSource = currentTheme
+  win?.setBackgroundColor(currentTheme === 'light' ? '#f4f6fa' : '#08080c')
+}
+ipcMain.on('conduit:theme:get', event => {
+  event.returnValue = currentTheme
+})
+
 function createWindow() {
+  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   win = new BrowserWindow({
-    width: 1280,
-    height: 860,
-    minWidth: 760,
-    minHeight: 560,
-    backgroundColor: '#08080c',
+    ...initialWindowBounds(display.workArea),
+    backgroundColor: currentTheme === 'light' ? '#f4f6fa' : '#08080c',
     title: 'conduit',
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 18 } } : {}),
     webPreferences: { preload: join(HERE, 'preload.cjs') }
@@ -63,6 +74,94 @@ app.on('second-instance', () => {
   if (win.isMinimized()) win.restore()
   win.focus()
 })
+
+const respond =
+  operation =>
+  async (...args) => {
+    try {
+      return { ok: true, ...(await operation(...args)) }
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
+  }
+ipcMain.handle(
+  'conduit:settings:get',
+  respond(async (_e, legacy) => {
+    const { migrateSettings } = await import('../server/settings.js')
+    const settings = await migrateSettings(legacy)
+    applyNativeTheme(settings.theme)
+    return { settings }
+  })
+)
+ipcMain.handle(
+  'conduit:settings:update',
+  respond(async (_e, patch) => {
+    const { updateSettings } = await import('../server/settings.js')
+    const settings = await updateSettings(patch)
+    applyNativeTheme(settings.theme)
+    return { settings }
+  })
+)
+ipcMain.handle(
+  'conduit:backup:export',
+  respond(async () => {
+    const { exportBackup } = await import('../server/backup.js')
+    const result = await dialog.showSaveDialog(win, {
+      defaultPath: join(app.getPath('documents'), `conduit-backup-${new Date().toISOString().slice(0, 10)}.json`),
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+    const data = await exportBackup()
+    await writeFile(result.filePath, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 })
+    return { path: result.filePath }
+  })
+)
+ipcMain.handle(
+  'conduit:backup:restore',
+  respond(async () => {
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile'],
+      filters: [{ name: 'conduit 备份', extensions: ['json'] }]
+    })
+    if (result.canceled) return { canceled: true }
+    const { validateBackup, restoreBackup } = await import('../server/backup.js')
+    const backup = validateBackup(JSON.parse(await readFile(result.filePaths[0], 'utf8')))
+    const choice = await dialog.showMessageBox(win, {
+      type: 'warning',
+      message: '恢复 conduit 备份？',
+      detail: `将替换 ${backup.servers.length} 台服务器、${backup.presets.length} 个方案及书签设置。当前配置会另存副本。备份不包含密码和 SSH 私钥，密码认证可能需要重新填写。请先完成或取消传输。`,
+      buttons: ['恢复', '取消'],
+      defaultId: 1,
+      cancelId: 1
+    })
+    if (choice.response !== 0) return { canceled: true }
+    const { withIdleTransfers } = await import('../server/index.js')
+    await withIdleTransfers(() => restoreBackup(backup))
+    const { loadSettings } = await import('../server/settings.js')
+    applyNativeTheme((await loadSettings()).theme)
+    return {}
+  })
+)
+ipcMain.handle(
+  'conduit:backup:repair',
+  respond(async () => {
+    const choice = await dialog.showMessageBox(win, {
+      type: 'warning',
+      message: '修复损坏的配置？',
+      detail: '仅将无法读取的配置替换为对应的 .bak 自动备份，原文件会保留副本。',
+      buttons: ['修复', '取消'],
+      defaultId: 1,
+      cancelId: 1
+    })
+    if (choice.response !== 0) return { canceled: true }
+    const { repairFromBackups } = await import('../server/backup.js')
+    const { withIdleTransfers } = await import('../server/index.js')
+    const repaired = await withIdleTransfers(repairFromBackups)
+    const { loadSettings } = await import('../server/settings.js')
+    applyNativeTheme((await loadSettings()).theme)
+    return { repaired }
+  })
+)
 
 ipcMain.handle('conduit:stat', async (_e, path) => {
   try {
@@ -109,16 +208,8 @@ ipcMain.handle('conduit:trash', async (_e, { directory, paths }) => {
   const deleted = []
   try {
     const files = validateDeletePaths(directory, paths, path)
-    const errors = []
-    for (const file of files) {
-      try {
-        await shell.trashItem(file)
-        deleted.push(file)
-      } catch (err) {
-        errors.push(`${file}: ${err.message}`)
-      }
-    }
-    return errors.length ? { ok: false, deleted, error: errors.join('\n') } : { ok: true, deleted }
+    const { trashLocalFiles } = await import('../server/index.js')
+    return await trashLocalFiles(files, file => shell.trashItem(file))
   } catch (err) {
     return { ok: false, deleted, error: err.message }
   }
@@ -153,8 +244,12 @@ ipcMain.handle('conduit:confirm', async (_e, { message, detail, action }) => {
 app
   .whenReady()
   .then(async () => {
-    // Match native window chrome and dialogs to the app's dark interface.
-    nativeTheme.themeSource = 'dark'
+    const { loadSettings } = await import('../server/settings.js')
+    try {
+      applyNativeTheme((await loadSettings()).theme)
+    } catch {
+      applyNativeTheme('dark')
+    }
     if (!app.isPackaged) app.dock?.setIcon(join(HERE, '..', 'build', 'icon.png'))
     inheritShellEnv()
     const { start } = await import('../server/index.js')

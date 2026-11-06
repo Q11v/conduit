@@ -108,7 +108,7 @@ export function ServerForm({ mode, draft, msg, keychain, hosts, tags, onChange, 
               }}
               onBlur={commitTag}
               placeholder="+ 新标签，回车添加"
-              className="h-6 w-36 px-2 rounded-md border border-dashed border-[rgba(255,255,255,.16)] bg-transparent text-[12px] text-fg outline-0 placeholder:text-mute-4 focus:border-[rgba(124,124,245,.7)]"
+              className="h-6 w-36 px-2 rounded-md border border-dashed border-[rgba(var(--surface-rgb),.16)] bg-transparent text-[12px] text-fg outline-0 placeholder:text-mute-4 focus:border-[rgba(124,124,245,.7)]"
             />
           </div>
         </div>

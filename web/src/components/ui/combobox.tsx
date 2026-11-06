@@ -88,7 +88,7 @@ function Combobox({ value, onValueChange, options, className, onKeyDown, onBlur,
             else show()
             input.current?.focus()
           }}
-          className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-7 h-7 p-0 border-0 rounded-[7px] bg-transparent text-mute-3 cursor-pointer hover:bg-[rgba(255,255,255,.1)] hover:text-white"
+          className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-7 h-7 p-0 border-0 rounded-[7px] bg-transparent text-mute-3 cursor-pointer hover:bg-[rgba(var(--surface-rgb),.1)] hover:text-fg"
         >
           <Chevron size={13} className={cn('transition-transform duration-150', shown ? '-rotate-90' : 'rotate-90')} />
         </button>
@@ -98,7 +98,7 @@ function Combobox({ value, onValueChange, options, className, onKeyDown, onBlur,
           id={`${id}-list`}
           role="listbox"
           onMouseDown={e => e.preventDefault()}
-          className="absolute left-0 right-0 top-[calc(100%+4px)] z-10 m-0 p-1 max-h-56 overflow-auto list-none bg-popover border border-[rgba(255,255,255,.2)] rounded-[10px] elevated animate-cdt-pop"
+          className="absolute left-0 right-0 top-[calc(100%+4px)] z-10 m-0 p-1 max-h-56 overflow-auto list-none bg-popover border border-[rgba(var(--surface-rgb),.2)] rounded-[10px] elevated animate-cdt-pop"
         >
           {items.map((o, i) => (
             <li
@@ -110,7 +110,7 @@ function Combobox({ value, onValueChange, options, className, onKeyDown, onBlur,
               onClick={() => pick(o)}
               className={cn(
                 'flex items-center gap-2 px-2.5 py-1.5 rounded-md cursor-pointer font-mono text-[13px]',
-                i === active ? 'bg-[rgba(255,255,255,.08)] text-fg' : 'text-fg-dim'
+                i === active ? 'bg-[rgba(var(--surface-rgb),.08)] text-fg' : 'text-fg-dim'
               )}
             >
               <span className="flex-1 min-w-0 truncate">{o}</span>

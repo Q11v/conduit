@@ -82,7 +82,7 @@ export function TaskCenter({ jobs, pending, parallel, onDismiss, onCancel, onRet
                 setShowCompleted(!open || !showCompleted)
                 setOpen(true)
               }}
-              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-mute hover:bg-white/5 hover:text-fg cursor-pointer"
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-mute hover:bg-fg/5 hover:text-fg cursor-pointer"
             >
               <Chevron size={12} className={open && showCompleted ? 'rotate-90' : ''} />
               已完成 {successful.length}
@@ -98,7 +98,7 @@ export function TaskCenter({ jobs, pending, parallel, onDismiss, onCancel, onRet
           )}
         </div>
         {expanded && (
-          <div id="transfer-tasks" className="flex flex-col gap-2 max-h-[35vh] overflow-y-auto pb-3">
+          <div id="transfer-tasks" className="flex flex-col gap-2 max-h-[min(30vh,240px)] overflow-y-auto pb-3">
             {visible.map(job => renderJob(job))}
             {showCompleted && successful.length > 0 && (
               <div id="completed-transfers">{successful.map(job => renderJob(job, true))}</div>

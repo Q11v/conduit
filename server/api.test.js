@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 const transfers = []
 const deletions = []
+let deleteGate = null
 const servers = [{ id: 'server', name: 'server', host: 'test.invalid', auth: 'key', dirs: ['/app'] }]
 const presets = [
   { id: 'a', name: '方案 A' },
@@ -27,6 +28,10 @@ mock.module('./transfer.js', {
     browseRemote: noop,
     deleteRemote: async (conn, directory, paths) => {
       deletions.push({ host: conn.host, directory, paths })
+      if (deleteGate) {
+        deleteGate.started()
+        await deleteGate.promise
+      }
       return { ok: true, deleted: paths }
     }
   }
@@ -60,7 +65,7 @@ mock.module('./presets.js', {
     PRESETS_PATH: '/unused/presets'
   }
 })
-const { app } = await import('./index.js')
+const { app, trashLocalFiles, withIdleTransfers } = await import('./index.js')
 const post = (path, data) =>
   app.request(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) })
 const start = (presetId, dir) =>
@@ -209,12 +214,88 @@ test('file deletion checks directory boundaries and returns deleted paths', asyn
   assert.deepEqual(deletions[0], { host: 'test.invalid', directory: '/app', paths: ['/app/old.txt'] })
 })
 
-test('file deletion is blocked while a transfer is active', async () => {
-  const job = await (await start('a', '/delete-conflict')).json()
+test('deletion waits for a conflicting transfer and allows unrelated transfers', async () => {
+  const job = await (await start('a', '/app')).json()
+  await flush()
   const before = deletions.length
-  const response = await post('/api/files/delete', { serverId: 'server', directory: '/app', paths: ['/app/old.txt'] })
-  assert.equal(response.status, 409)
+  const deleting = post('/api/files/delete', { serverId: 'server', directory: '/app', paths: ['/app/old.txt'] })
+  await flush()
   assert.equal(deletions.length, before)
   await post(`/api/jobs/${job.id}/cancel`)
   await flush()
+  assert.equal((await deleting).status, 200)
+  assert.equal(deletions.length, before + 1)
+})
+
+test('an upload submitted after deletion waits, while an unrelated target proceeds', async () => {
+  let release, started
+  const entered = new Promise(resolve => {
+    started = resolve
+  })
+  deleteGate = {
+    promise: new Promise(resolve => {
+      release = resolve
+    }),
+    started
+  }
+  const before = transfers.length
+  const deleting = post('/api/files/delete', { serverId: 'server', directory: '/app', paths: ['/app/old.txt'] })
+  await entered
+  const blocked = await (await start('a', '/app')).json()
+  await flush()
+  assert.equal(transfers.length, before)
+  const unrelated = await (await start('b', '/different')).json()
+  await flush()
+  assert.equal(transfers.length, before + 1)
+  await assert.rejects(
+    withIdleTransfers(async () => {}),
+    /先完成/
+  )
+  await post(`/api/jobs/${unrelated.id}/cancel`)
+  release()
+  assert.equal((await deleting).status, 200)
+  deleteGate = null
+  await flush()
+  assert.equal(transfers.length, before + 2)
+  await post(`/api/jobs/${blocked.id}/cancel`)
+  await flush()
+})
+
+test('trash operations share local source locks and configuration restore blocks new launches', async () => {
+  let release, entered
+  const started = new Promise(resolve => {
+    entered = resolve
+  })
+  const gate = new Promise(resolve => {
+    release = resolve
+  })
+  const trash = trashLocalFiles([process.execPath], async () => {
+    entered()
+    await gate
+  })
+  await started
+  const before = transfers.length
+  const push = await (await start('a', '/safe')).json()
+  await flush()
+  assert.equal(transfers.length, before)
+  release()
+  await trash
+  await flush()
+  assert.equal(transfers.length, before + 1)
+  await post(`/api/jobs/${push.id}/cancel`)
+  await flush()
+  let finishRestore, restoreEntered
+  const restoreStarted = new Promise(resolve => {
+    restoreEntered = resolve
+  })
+  const restoring = withIdleTransfers(async () => {
+    restoreEntered()
+    await new Promise(resolve => {
+      finishRestore = resolve
+    })
+  })
+  await restoreStarted
+  assert.equal((await start('a', '/restoring')).status, 409)
+  finishRestore()
+  await restoring
 })

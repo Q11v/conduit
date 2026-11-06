@@ -9,9 +9,9 @@ const TAG: Record<string, [string, string]> = {
   GET: ['rgba(106,213,230,.14)', 'var(--color-cyan)'],
   WARN: ['rgba(223,180,60,.14)', 'var(--color-warn-text)'],
   FAIL: ['rgba(226,86,86,.16)', 'var(--color-err-text)'],
-  TEST: ['rgba(255,255,255,.07)', 'var(--color-fg-dim)']
+  TEST: ['rgba(var(--surface-rgb),.07)', 'var(--color-fg-dim)']
 }
-const FALLBACK: [string, string] = ['rgba(255,255,255,.07)', 'var(--color-fg-dim)']
+const FALLBACK: [string, string] = ['rgba(var(--surface-rgb),.07)', 'var(--color-fg-dim)']
 
 const when = (iso: string) => {
   const d = new Date(iso)
@@ -41,7 +41,7 @@ function Row({ e }: { e: ActivityEvent }) {
         onClick={() => setOpen(v => !v)}
         aria-expanded={open}
         aria-controls={detailsId}
-        className="flex w-full items-center gap-3 px-4 py-[11px] text-left cursor-pointer hover:bg-[rgba(255,255,255,.025)]"
+        className="flex w-full items-center gap-3 px-4 py-[11px] text-left cursor-pointer hover:bg-[rgba(var(--surface-rgb),.025)]"
       >
         <span
           className="shrink-0 w-[112px] whitespace-nowrap font-mono text-[12px] leading-[19px] text-mute-4 tabular-nums"
@@ -63,7 +63,7 @@ function Row({ e }: { e: ActivityEvent }) {
         />
       </button>
       {open && (
-        <div id={detailsId} className="relative mx-4 mb-3 sm:ml-[206px] rounded-lg bg-[rgba(0,0,0,.35)] border hair">
+        <div id={detailsId} className="relative mx-4 mb-3 sm:ml-[206px] rounded-lg sunken border hair">
           <IconBtn
             onClick={() => void navigator.clipboard.writeText(fullText)}
             title="复制"
@@ -101,7 +101,7 @@ export function ActivityView({ events, failedOnly, onFailedOnly, logFile }: Prop
             完整日志文件
           </Btn>
         )}
-        <div className="flex shrink-0 gap-[2px] p-[3px] rounded-[9px] bg-[rgba(255,255,255,.05)] border hair">
+        <div className="flex shrink-0 gap-[2px] p-[3px] rounded-[9px] bg-[rgba(var(--surface-rgb),.05)] border hair">
           {[
             ['全部', false],
             ['仅失败', true]
@@ -110,7 +110,9 @@ export function ActivityView({ events, failedOnly, onFailedOnly, logFile }: Prop
               key={String(label)}
               onClick={() => onFailedOnly(on as boolean)}
               className={`px-[11px] py-1 border-0 rounded-md text-xs cursor-pointer transition-all duration-150 ${
-                failedOnly === on ? 'bg-[rgba(255,255,255,.1)] text-fg' : 'bg-transparent text-mute-2 hover:text-fg-dim'
+                failedOnly === on
+                  ? 'bg-[rgba(var(--surface-rgb),.1)] text-fg'
+                  : 'bg-transparent text-mute-2 hover:text-fg-dim'
               }`}
             >
               {label as string}

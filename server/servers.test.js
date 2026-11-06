@@ -57,3 +57,21 @@ test('invalid ordering leaves the configuration intact and does not block later 
   await updateServer(a.id, { name: 'after rejection' })
   assert.equal((await loadServers())[0].name, 'after rejection')
 })
+
+test('legacy directory, group and string port remain compatible without dropping configuration', async () => {
+  await writeFile(
+    process.env.CONDUIT_CONFIG,
+    JSON.stringify([{ id: 'legacy', host: 'host.invalid', dir: '/app', group: 'test', port: '2222' }])
+  )
+  assert.deepEqual(await loadServers(), [
+    {
+      id: 'legacy',
+      host: 'host.invalid',
+      name: 'host.invalid',
+      auth: 'key',
+      dirs: ['/app'],
+      tags: ['test'],
+      port: 2222
+    }
+  ])
+})

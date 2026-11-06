@@ -49,7 +49,7 @@ export function PlansView({ c }: { c: Controller }) {
       </div>
       <div className="mb-4 flex gap-2">
         {(['all', 'push', 'pull'] as const).map(v => (
-          <Btn key={v} onClick={() => setFilter(v)} className={filter === v ? 'bg-white/10 text-fg' : ''}>
+          <Btn key={v} onClick={() => setFilter(v)} className={filter === v ? 'bg-fg/10 text-fg' : ''}>
             {v === 'all' ? '全部' : v === 'push' ? '上传' : '拉取'}
           </Btn>
         ))}
@@ -87,7 +87,7 @@ export function PlansView({ c }: { c: Controller }) {
                 variant={p.kind === 'push' ? 'primary' : 'cyan'}
                 disabled={c.busyPresets.has(p.id)}
                 onClick={() => {
-                  void (p.kind === 'push' ? c.applyPreset(p, true) : c.applyPullPreset(p, true))
+                  void (p.kind === 'push' ? c.applyPreset(p) : c.applyPullPreset(p))
                 }}
               >
                 {c.busyPresets.has(p.id) ? '执行中…' : p.kind === 'push' ? '上传' : '拉取'}
@@ -99,9 +99,6 @@ export function PlansView({ c }: { c: Controller }) {
           </article>
         ))}
       </div>
-      <p role="status" className="mt-3 text-xs text-mute">
-        {c.statusText.bad ? c.statusText.text : c.pullStatusText.bad ? c.pullStatusText.text : ''}
-      </p>
       <Dialog
         open={draft !== null}
         onOpenChange={open => {

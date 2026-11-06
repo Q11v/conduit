@@ -18,7 +18,7 @@ function ToggleGroupItem({ className, ...props }: ComponentProps<typeof ToggleGr
       data-slot="toggle-group-item"
       className={cn(
         'h-7 px-2.5 border rounded-md text-[12px] whitespace-nowrap cursor-pointer transition-colors duration-150',
-        'border-border bg-[rgba(255,255,255,.03)] text-mute-2 hover:text-fg-dim hover:border-[rgba(255,255,255,.2)]',
+        'border-border bg-[rgba(var(--surface-rgb),.03)] text-mute-2 hover:text-fg-dim hover:border-[rgba(var(--surface-rgb),.2)]',
         'data-[state=on]:border-[rgba(124,124,245,.5)] data-[state=on]:bg-[rgba(124,124,245,.16)] data-[state=on]:text-violet-text',
         'disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:text-mute-2 disabled:hover:border-border',
         className
